@@ -1,0 +1,8 @@
+[package]
+name = "spurs"
+version = "0.1.0"
+authors = ["Mark Mansi <markm@cs.wisc.edu>"]
+edition = "2018"
+
+[dependencies]
+ssh2 = "0.3.3"
