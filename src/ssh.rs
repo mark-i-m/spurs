@@ -108,6 +108,9 @@ impl SshShell {
         }
         Ok(())
     }
+
+    // TODO: run with bash
+    // TODO: spawn
 }
 
 #[test]
