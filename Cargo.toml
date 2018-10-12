@@ -6,3 +6,7 @@ edition = "2018"
 
 [dependencies]
 ssh2 = "0.3.3"
+dirs = "1.0.4"
+failure = "0.1.2"
+failure_derive = "0.1.2"
+console = "0.6.2"
