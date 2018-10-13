@@ -141,7 +141,7 @@ pub fn swapon(shell: &mut SshShell, device: &str) -> Result<(), failure::Error> 
 }
 
 /// Reboot and wait for the remote machine to come back up again.
-pub fn reboot(mut shell: SshShell) -> Result<(), failure::Error> {
+pub fn reboot(shell: &mut SshShell) -> Result<(), failure::Error> {
     let _ = shell.run(cmd!("sudo reboot"));
 
     // If we try to reconnect immediately, the machine will not have gone down yet.
