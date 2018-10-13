@@ -4,6 +4,8 @@ use std::{
     io::Read,
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    thread::JoinHandle,
 };
 
 use failure::Fail;
@@ -22,7 +24,7 @@ pub enum SshError {
     )]
     AuthFailed { key: PathBuf },
 
-    #[fail(display = "Non-zero exit ({}) for command: {}", exit, cmd)]
+    #[fail(display = "non-zero exit ({}) for command: {}", exit, cmd)]
     NonZeroExit { cmd: String, exit: i32 },
 }
 
@@ -30,7 +32,12 @@ pub enum SshError {
 pub struct SshShell {
     // The TCP stream needs to be in the struct to keep it alive while the session is active.
     _tcp: TcpStream,
-    sess: Session,
+    sess: Arc<Mutex<Session>>,
+}
+
+/// A handle for a spawned remote command.
+pub struct SshSpawnHandle {
+    thread_handle: JoinHandle<Result<(), failure::Error>>,
 }
 
 impl SshShell {
@@ -69,15 +76,21 @@ impl SshShell {
             }
             .into());
         }
-        Ok(SshShell { _tcp: tcp, sess })
+        Ok(SshShell {
+            _tcp: tcp,
+            sess: Arc::new(Mutex::new(sess)),
+        })
     }
 
-    /// Run a command on the remote machine, blocking until the command completes.
-    pub fn run(&self, cmd: &str) -> Result<(), failure::Error> {
-        let mut chan = self.sess.channel_session()?;
-
+    // Helper that runs the command an prints the given message, blocking until the command
+    // completes.
+    fn run_with_message_and_chan(
+        mut chan: ssh2::Channel,
+        cmd: &str,
+        msg: &str,
+    ) -> Result<(), failure::Error> {
         // print message
-        println!("{}", console::style(cmd).yellow().bold());
+        println!("{}", console::style(msg).yellow().bold());
 
         // execute cmd remotely
         chan.exec(cmd)?;
@@ -109,12 +122,57 @@ impl SshShell {
         Ok(())
     }
 
-    // TODO: run with bash
-    // TODO: spawn
+    // Helper that runs the command an prints the given message, blocking until the command
+    // completes.
+    fn run_with_message(&self, cmd: &str, msg: &str) -> Result<(), failure::Error> {
+        let sess = self.sess.lock().unwrap();
+        let chan = sess.channel_session()?;
+        Self::run_with_message_and_chan(chan, cmd, msg)
+    }
+
+    /// Run a command on the remote machine, blocking until the command completes.
+    pub fn run(&self, cmd: &str) -> Result<(), failure::Error> {
+        self.run_with_message(cmd, cmd)
+    }
+
+    /// Run a command on the remote machine as a bash script, blocking until the command completes.
+    pub fn run_with_bash(&self, cmd: &str) -> Result<(), failure::Error> {
+        let bashed = format!("bash -c {}", super::util::escape_for_bash(cmd));
+        self.run_with_message(&bashed, cmd)
+    }
+
+    /// Run a command on the remote machine, without blocking until the command completes. A handle
+    /// is returned, which one can `join` on to wait for process completion.
+    pub fn spawn(&self, cmd: &str) -> Result<SshSpawnHandle, failure::Error> {
+        let cmd = cmd.to_owned();
+        let sess = self.sess.clone();
+        Ok(SshSpawnHandle {
+            thread_handle: std::thread::spawn(move || {
+                let sess = sess.lock().unwrap();
+                let chan = sess.channel_session()?;
+                Self::run_with_message_and_chan(chan, &cmd, &cmd)
+            }),
+        })
+    }
+
+    /// `spawn_with_bash` is to `spawn` as `run_with_bash` is to `run`.
+    pub fn spawn_with_bash(&self, cmd: &str) -> Result<SshSpawnHandle, failure::Error> {
+        let bashed = format!("bash -c {}", super::util::escape_for_bash(cmd));
+        let cmd = cmd.to_owned();
+        let sess = self.sess.clone();
+        Ok(SshSpawnHandle {
+            thread_handle: std::thread::spawn(move || {
+                let sess = sess.lock().unwrap();
+                let chan = sess.channel_session()?;
+                Self::run_with_message_and_chan(chan, &bashed, &cmd)
+            }),
+        })
+    }
 }
 
-#[test]
-fn test_easy() {
-    let ushell = SshShell::with_default_key("markm", "seclab8:22").unwrap();
-    ushell.run("ls").unwrap();
+impl SshSpawnHandle {
+    /// Block until the remote command completes.
+    pub fn join(self) -> Result<(), failure::Error> {
+        self.thread_handle.join().unwrap()
+    }
 }
