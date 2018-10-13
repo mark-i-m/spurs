@@ -34,6 +34,11 @@ pub struct SshCommand {
     use_bash: bool,
 }
 
+pub struct SshOutput {
+    pub stdout: String,
+    pub stderr: String,
+}
+
 /// Represents a connection via SSH to a particular source.
 pub struct SshShell {
     // The TCP stream needs to be in the struct to keep it alive while the session is active.
@@ -43,7 +48,7 @@ pub struct SshShell {
 
 /// A handle for a spawned remote command.
 pub struct SshSpawnHandle {
-    thread_handle: JoinHandle<Result<(), failure::Error>>,
+    thread_handle: JoinHandle<Result<SshOutput, failure::Error>>,
 }
 
 impl SshCommand {
@@ -115,7 +120,7 @@ impl SshShell {
     fn run_with_chan_and_opts(
         mut chan: ssh2::Channel,
         cmd_opts: SshCommand,
-    ) -> Result<(), failure::Error> {
+    ) -> Result<SshOutput, failure::Error> {
         let SshCommand { cwd, cmd, use_bash } = cmd_opts;
 
         // Print the raw command. We are going to modify it slightly before executing (e.g. to
@@ -124,7 +129,7 @@ impl SshShell {
 
         // Construct the commmand in the right directory and using bash if needed.
         let cmd = if use_bash {
-            format!("bash -c {}", super::util::escape_for_bash(&cmd))
+            format!("bash -c {}", crate::util::escape_for_bash(&cmd))
         } else {
             cmd
         };
@@ -141,10 +146,14 @@ impl SshShell {
         // execute cmd remotely
         chan.exec(&cmd)?;
 
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+
         // print stdout
         let mut buf = [0; 256];
         while chan.read(&mut buf)? > 0 {
             print!("{}", std::str::from_utf8(&buf).unwrap());
+            stdout.extend(std::str::from_utf8(&buf));
         }
 
         // close and wait for remote to close
@@ -154,6 +163,7 @@ impl SshShell {
         // print stderr
         while chan.stderr().read(&mut buf)? > 0 {
             print!("{}", std::str::from_utf8(&buf).unwrap());
+            stderr.extend(std::str::from_utf8(&buf));
         }
 
         // check the exit status
@@ -165,11 +175,13 @@ impl SshShell {
             }
             .into());
         }
-        Ok(())
+
+        // return output
+        Ok(SshOutput { stdout, stderr })
     }
 
     /// Run a command on the remote machine, blocking until the command completes.
-    pub fn run(&self, cmd: SshCommand) -> Result<(), failure::Error> {
+    pub fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
         let sess = self.sess.lock().unwrap();
         let chan = sess.channel_session()?;
         Self::run_with_chan_and_opts(chan, cmd)
@@ -191,7 +203,28 @@ impl SshShell {
 
 impl SshSpawnHandle {
     /// Block until the remote command completes.
-    pub fn join(self) -> Result<(), failure::Error> {
+    pub fn join(self) -> Result<SshOutput, failure::Error> {
         self.thread_handle.join().unwrap()
     }
+}
+
+/// A useful macro that allows creating commands with format strings and arguments.
+///
+/// ```rust
+/// cmd!("ls {}", "foo")
+/// ```
+///
+/// is equivalent to the expression
+///
+/// ```rust
+/// SshCommand::new(&format!("ls {}", "foo"))
+/// ```
+#[macro_export]
+macro_rules! cmd {
+    ($fmt:expr) => {
+        SshCommand::new(&format!($fmt))
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        SshCommand::new(&format!($fmt, $($arg)*))
+    };
 }
