@@ -28,6 +28,12 @@ pub enum SshError {
     NonZeroExit { cmd: String, exit: i32 },
 }
 
+pub struct SshCommand {
+    cmd: String,
+    cwd: Option<PathBuf>,
+    use_bash: bool,
+}
+
 /// Represents a connection via SSH to a particular source.
 pub struct SshShell {
     // The TCP stream needs to be in the struct to keep it alive while the session is active.
@@ -38,6 +44,30 @@ pub struct SshShell {
 /// A handle for a spawned remote command.
 pub struct SshSpawnHandle {
     thread_handle: JoinHandle<Result<(), failure::Error>>,
+}
+
+impl SshCommand {
+    pub fn new(cmd: &str) -> Self {
+        SshCommand {
+            cmd: cmd.to_owned(),
+            cwd: None,
+            use_bash: false,
+        }
+    }
+
+    pub fn cwd<P: AsRef<Path>>(self, cwd: P) -> Self {
+        SshCommand {
+            cwd: Some(cwd.as_ref().to_owned()),
+            ..self
+        }
+    }
+
+    pub fn use_bash(self) -> Self {
+        SshCommand {
+            use_bash: true,
+            ..self
+        }
+    }
 }
 
 impl SshShell {
@@ -82,18 +112,34 @@ impl SshShell {
         })
     }
 
-    // Helper that runs the command an prints the given message, blocking until the command
-    // completes.
-    fn run_with_message_and_chan(
+    fn run_with_chan_and_opts(
         mut chan: ssh2::Channel,
-        cmd: &str,
-        msg: &str,
+        cmd_opts: SshCommand,
     ) -> Result<(), failure::Error> {
+        let SshCommand { cwd, cmd, use_bash } = cmd_opts;
+
+        // Print the raw command. We are going to modify it slightly before executing (e.g. to
+        // switch directories)
+        let msg = cmd.clone();
+
+        // Construct the commmand in the right directory and using bash if needed.
+        let cmd = if use_bash {
+            format!("bash -c {}", super::util::escape_for_bash(&cmd))
+        } else {
+            cmd
+        };
+
+        let cmd = if let Some(cwd) = cwd {
+            format!("cd {} ; {}", cwd.display(), cmd)
+        } else {
+            cmd
+        };
+
         // print message
         println!("{}", console::style(msg).yellow().bold());
 
         // execute cmd remotely
-        chan.exec(cmd)?;
+        chan.exec(&cmd)?;
 
         // print stdout
         let mut buf = [0; 256];
@@ -122,49 +168,22 @@ impl SshShell {
         Ok(())
     }
 
-    // Helper that runs the command an prints the given message, blocking until the command
-    // completes.
-    fn run_with_message(&self, cmd: &str, msg: &str) -> Result<(), failure::Error> {
+    /// Run a command on the remote machine, blocking until the command completes.
+    pub fn run(&self, cmd: SshCommand) -> Result<(), failure::Error> {
         let sess = self.sess.lock().unwrap();
         let chan = sess.channel_session()?;
-        Self::run_with_message_and_chan(chan, cmd, msg)
-    }
-
-    /// Run a command on the remote machine, blocking until the command completes.
-    pub fn run(&self, cmd: &str) -> Result<(), failure::Error> {
-        self.run_with_message(cmd, cmd)
-    }
-
-    /// Run a command on the remote machine as a bash script, blocking until the command completes.
-    pub fn run_with_bash(&self, cmd: &str) -> Result<(), failure::Error> {
-        let bashed = format!("bash -c {}", super::util::escape_for_bash(cmd));
-        self.run_with_message(&bashed, cmd)
+        Self::run_with_chan_and_opts(chan, cmd)
     }
 
     /// Run a command on the remote machine, without blocking until the command completes. A handle
     /// is returned, which one can `join` on to wait for process completion.
-    pub fn spawn(&self, cmd: &str) -> Result<SshSpawnHandle, failure::Error> {
-        let cmd = cmd.to_owned();
+    pub fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
         let sess = self.sess.clone();
         Ok(SshSpawnHandle {
             thread_handle: std::thread::spawn(move || {
                 let sess = sess.lock().unwrap();
                 let chan = sess.channel_session()?;
-                Self::run_with_message_and_chan(chan, &cmd, &cmd)
-            }),
-        })
-    }
-
-    /// `spawn_with_bash` is to `spawn` as `run_with_bash` is to `run`.
-    pub fn spawn_with_bash(&self, cmd: &str) -> Result<SshSpawnHandle, failure::Error> {
-        let bashed = format!("bash -c {}", super::util::escape_for_bash(cmd));
-        let cmd = cmd.to_owned();
-        let sess = self.sess.clone();
-        Ok(SshSpawnHandle {
-            thread_handle: std::thread::spawn(move || {
-                let sess = sess.lock().unwrap();
-                let chan = sess.channel_session()?;
-                Self::run_with_message_and_chan(chan, &bashed, &cmd)
+                Self::run_with_chan_and_opts(chan, cmd)
             }),
         })
     }
