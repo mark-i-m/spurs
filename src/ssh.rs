@@ -2,15 +2,19 @@
 
 use std::{
     io::Read,
-    net::{TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread::JoinHandle,
+    time::Duration,
 };
 
 use failure::Fail;
 
 use ssh2::Session;
+
+/// The default timeout for the TCP stream of a SSH connection.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An error type representing things that could possibly go wrong when using an SshShell.
 #[derive(Debug, Fail)]
@@ -32,6 +36,7 @@ pub struct SshCommand {
     cmd: String,
     cwd: Option<PathBuf>,
     use_bash: bool,
+    allow_error: bool,
 }
 
 pub struct SshOutput {
@@ -42,7 +47,10 @@ pub struct SshOutput {
 /// Represents a connection via SSH to a particular source.
 pub struct SshShell {
     // The TCP stream needs to be in the struct to keep it alive while the session is active.
-    _tcp: TcpStream,
+    tcp: TcpStream,
+    username: String,
+    key: PathBuf,
+    remote: SocketAddr,
     sess: Arc<Mutex<Session>>,
 }
 
@@ -57,6 +65,7 @@ impl SshCommand {
             cmd: cmd.to_owned(),
             cwd: None,
             use_bash: false,
+            allow_error: false,
         }
     }
 
@@ -73,11 +82,22 @@ impl SshCommand {
             ..self
         }
     }
+
+    pub fn allow_error(self) -> Self {
+        SshCommand {
+            allow_error: true,
+            ..self
+        }
+    }
 }
 
 impl SshShell {
     /// Returns a shell connected via the default private key at `$HOME/.ssh/id_rsa` to the given
     /// SSH server as the given user.
+    ///
+    /// ```rust,ignore
+    /// SshShell::with_default_key("markm", "myhost:22")?;
+    /// ```
     pub fn with_default_key<A: ToSocketAddrs>(
         username: &str,
         remote: A,
@@ -96,12 +116,22 @@ impl SshShell {
 
     /// Returns a shell connected via private key file `key` to the given SSH server as the given
     /// user.
+    ///
+    /// ```rust,ignore
+    /// SshShell::with_key("markm", "myhost:22", "/home/foo/.ssh/id_rsa")?;
+    /// ```
     pub fn with_key<A: ToSocketAddrs, P: AsRef<Path>>(
         username: &str,
         remote: A,
         key: P,
     ) -> Result<Self, failure::Error> {
-        let tcp = TcpStream::connect(remote)?;
+        // Create a TCP connection
+        let tcp = TcpStream::connect(&remote)?;
+        tcp.set_read_timeout(Some(DEFAULT_TIMEOUT))?;
+        tcp.set_write_timeout(Some(DEFAULT_TIMEOUT))?;
+        let remote = remote.to_socket_addrs().unwrap().next().unwrap();
+
+        // Start an SSH session
         let mut sess = Session::new().unwrap();
         sess.handshake(&tcp)?;
         sess.userauth_pubkey_file(username, None, key.as_ref(), None)?;
@@ -111,17 +141,79 @@ impl SshShell {
             }
             .into());
         }
+
+        println!(
+            "{}",
+            console::style(format!("{}@{}", username, remote))
+                .green()
+                .bold()
+        );
+
         Ok(SshShell {
-            _tcp: tcp,
+            tcp: tcp,
+            username: username.to_owned(),
+            key: key.as_ref().to_owned(),
+            remote,
             sess: Arc::new(Mutex::new(sess)),
         })
+    }
+
+    /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
+    pub fn reconnect(&mut self) -> Result<(), failure::Error> {
+        loop {
+            print!("{}", console::style("Attempt Reconnect ... ").red().bold());
+            match TcpStream::connect_timeout(&self.remote, DEFAULT_TIMEOUT / 2) {
+                Ok(tcp) => {
+                    self.tcp = tcp;
+                    break;
+                }
+                Err(_) => {
+                    println!("{}", console::style("failed, retrying").red().bold());
+                    std::thread::sleep(DEFAULT_TIMEOUT / 2);
+                }
+            }
+        }
+
+        println!(
+            "{}",
+            console::style("TCP connected, doing SSH handshake")
+                .red()
+                .bold()
+        );
+
+        // Start an SSH session
+        let mut sess = Session::new().unwrap();
+        sess.handshake(&self.tcp)?;
+        sess.userauth_pubkey_file(&self.username, None, self.key.as_ref(), None)?;
+        if !sess.authenticated() {
+            return Err(SshError::AuthFailed {
+                key: self.key.clone(),
+            }
+            .into());
+        }
+
+        self.sess = Arc::new(Mutex::new(sess));
+
+        println!(
+            "{}",
+            console::style(format!("{}@{}", self.username, self.remote))
+                .green()
+                .bold()
+        );
+
+        Ok(())
     }
 
     fn run_with_chan_and_opts(
         mut chan: ssh2::Channel,
         cmd_opts: SshCommand,
     ) -> Result<SshOutput, failure::Error> {
-        let SshCommand { cwd, cmd, use_bash } = cmd_opts;
+        let SshCommand {
+            cwd,
+            cmd,
+            use_bash,
+            allow_error,
+        } = cmd_opts;
 
         // Print the raw command. We are going to modify it slightly before executing (e.g. to
         // switch directories)
@@ -142,6 +234,9 @@ impl SshShell {
 
         // print message
         println!("{}", console::style(msg).yellow().bold());
+
+        // request a pty so that `sudo` commands work fine
+        chan.request_pty("vt100", None, None)?;
 
         // execute cmd remotely
         chan.exec(&cmd)?;
@@ -168,7 +263,7 @@ impl SshShell {
 
         // check the exit status
         let exit = chan.exit_status()?;
-        if exit != 0 {
+        if exit != 0 && !allow_error {
             return Err(SshError::NonZeroExit {
                 cmd: cmd.into(),
                 exit,
@@ -181,6 +276,8 @@ impl SshShell {
     }
 
     /// Run a command on the remote machine, blocking until the command completes.
+    ///
+    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     pub fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
         let sess = self.sess.lock().unwrap();
         let chan = sess.channel_session()?;
@@ -189,6 +286,8 @@ impl SshShell {
 
     /// Run a command on the remote machine, without blocking until the command completes. A handle
     /// is returned, which one can `join` on to wait for process completion.
+    ///
+    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     pub fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
         let sess = self.sess.clone();
         Ok(SshSpawnHandle {
@@ -210,13 +309,13 @@ impl SshSpawnHandle {
 
 /// A useful macro that allows creating commands with format strings and arguments.
 ///
-/// ```rust
+/// ```rust,ignore
 /// cmd!("ls {}", "foo")
 /// ```
 ///
 /// is equivalent to the expression
 ///
-/// ```rust
+/// ```rust,ignore
 /// SshCommand::new(&format!("ls {}", "foo"))
 /// ```
 #[macro_export]

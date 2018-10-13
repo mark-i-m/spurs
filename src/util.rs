@@ -73,7 +73,7 @@ pub fn set_cpu_scaling_governor(shell: SshShell, gov: &str) -> Result<(), failur
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// format_partition_as_ext4(root_shell, "/dev/sda4", "/home/foouser/")?;
 /// ```
 pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
@@ -125,6 +125,33 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
 
     // Print for info
     shell.run(cmd!("lsblk"))?;
+
+    Ok(())
+}
+
+/// Turn off the swap device. Requires `sudo` permissions.
+pub fn swapoff(shell: &mut SshShell, device: &str) -> Result<(), failure::Error> {
+    shell.run(cmd!("sudo swapoff {}", device)).map(|_| ())
+}
+
+/// Turn on the swap device. Requires `sudo` permissions. Assumes the device is already formatted
+/// as a swap device (i.e. with `mkswap`).
+pub fn swapon(shell: &mut SshShell, device: &str) -> Result<(), failure::Error> {
+    shell.run(cmd!("sudo swapon {}", device)).map(|_| ())
+}
+
+/// Reboot and wait for the remote machine to come back up again.
+pub fn reboot(mut shell: SshShell) -> Result<(), failure::Error> {
+    let _ = shell.run(cmd!("sudo reboot"));
+
+    // If we try to reconnect immediately, the machine will not have gone down yet.
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // Attempt to reconnect.
+    shell.reconnect()?;
+
+    // Make sure it worked.
+    shell.run(cmd!("whoami"))?;
 
     Ok(())
 }
