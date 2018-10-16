@@ -53,6 +53,7 @@ pub struct SshShell {
     key: PathBuf,
     remote: SocketAddr,
     sess: Arc<Mutex<Session>>,
+    dry_run_mode: bool,
 }
 
 /// A handle for a spawned remote command.
@@ -170,7 +171,15 @@ impl SshShell {
             key: key.as_ref().to_owned(),
             remote,
             sess: Arc::new(Mutex::new(sess)),
+            dry_run_mode: false,
         })
+    }
+
+    /// Toggles _dry run mode_. In dry run mode, commands are not executed remotely; we only print
+    /// what commands we would execute. Note that we do connect remotely, though. This is off by
+    /// default: we default to actually running the commands.
+    pub fn toggle_dry_run(&mut self) {
+        self.dry_run_mode = !self.dry_run_mode;
     }
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
@@ -305,6 +314,11 @@ impl SshShell {
     pub fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
         let sess = self.sess.lock().unwrap();
         let chan = sess.channel_session()?;
+        let cmd = if self.dry_run_mode {
+            cmd.dry_run(true)
+        } else {
+            cmd
+        };
         Self::run_with_chan_and_opts(chan, cmd)
     }
 
@@ -314,6 +328,11 @@ impl SshShell {
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     pub fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
         let sess = self.sess.clone();
+        let cmd = if self.dry_run_mode {
+            cmd.dry_run(true)
+        } else {
+            cmd
+        };
         Ok(SshSpawnHandle {
             thread_handle: std::thread::spawn(move || {
                 let sess = sess.lock().unwrap();

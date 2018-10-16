@@ -9,6 +9,8 @@
 //! There are also some utilities that don't construct or run commands. They are just useful
 //! functions that I wrote.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::ssh::{SshCommand, SshShell};
 
 /// Given a string, encode all single quotes so that the whole string can be passed correctly as a
@@ -78,6 +80,10 @@ pub fn swapon(device: &str) -> SshCommand {
 /// Add the executing user to the given group. Requires `sudo` permissions.
 pub fn add_to_group(group: &str) -> SshCommand {
     cmd!("sudo usermod -aG {} `whoami`", group).use_bash()
+}
+
+pub fn reformat_drive(device: &str) -> SshCommand {
+    cmd!("sudo parted -a optimal {} -s -- mklabel gpt", device)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -190,4 +196,48 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
     shell.run(cmd!("lsblk").dry_run(dry_run))?;
 
     Ok(())
+}
+
+/// Returns a list of partitions of the given device. For example, `["sda1", "sda2"]`.
+pub fn get_partitions(
+    shell: &SshShell,
+    device: &str,
+    dry_run: bool,
+) -> Result<HashSet<String>, failure::Error> {
+    Ok(shell
+        .run(cmd!("lsblk -o KNAME {}", device).dry_run(dry_run))?
+        .stdout
+        .lines()
+        .map(|line| line.trim().to_owned())
+        .skip(2)
+        .collect())
+}
+
+/// Returns a list of devices with no partitions. For example, `["sda", "sdb"]`.
+pub fn get_unpartitioned_devs(
+    shell: &SshShell,
+    dry_run: bool,
+) -> Result<HashSet<String>, failure::Error> {
+    // List all devs
+    let lsblk = shell.run(cmd!("lsblk -o KNAME").dry_run(dry_run))?.stdout;
+    let mut devices: HashSet<&str> = lsblk.lines().map(|line| line.trim()).skip(1).collect();
+
+    // Get the partitions of each device.
+    let partitions: HashMap<_, _> = devices
+        .iter()
+        .map(|&dev| (dev, get_partitions(shell, dev, dry_run)))
+        .collect();
+
+    // Remove partitions and partitioned devices from the list of devices
+    for (dev, parts) in partitions.into_iter() {
+        let parts = parts?;
+        if !parts.is_empty() {
+            devices.remove(dev);
+            for part in parts {
+                devices.remove(part.as_str());
+            }
+        }
+    }
+
+    Ok(devices.iter().map(|&dev| dev.to_owned()).collect())
 }
