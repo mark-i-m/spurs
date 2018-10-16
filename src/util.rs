@@ -1,4 +1,13 @@
 //! A collection of useful utilities for running commands, configuring machines, etc.
+//!
+//! Some of these utilities execute a sequence of steps. They require a shell as input and actually
+//! run a command remotely.
+//!
+//! The rest only construct a command that can be executed and return it to the caller _without
+//! executing anything_.
+//!
+//! There are also some utilities that don't construct or run commands. They are just useful
+//! functions that I wrote.
 
 use crate::ssh::{SshCommand, SshShell};
 
@@ -43,14 +52,54 @@ pub fn escape_for_bash(s: &str) -> String {
     new
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Below are utilies that just construct (but don't run) a command.
+///////////////////////////////////////////////////////////////////////////////
+
 /// Sets the CPU scaling governor to the given governor. This requires
 /// - `cpupower` to be installed,
 /// - `sudo` priveleges,
 /// - the necessary Linux kernel modules.
-pub fn set_cpu_scaling_governor(shell: SshShell, gov: &str) -> Result<(), failure::Error> {
-    shell
-        .run(cmd!("sudo cpupower frequency-set -g {}", gov))
-        .map(|_| ())
+pub fn set_cpu_scaling_governor(gov: &str) -> SshCommand {
+    cmd!("sudo cpupower frequency-set -g {}", gov)
+}
+
+/// Turn off the swap device. Requires `sudo` permissions.
+pub fn swapoff(device: &str) -> SshCommand {
+    cmd!("sudo swapoff {}", device)
+}
+
+/// Turn on the swap device. Requires `sudo` permissions. Assumes the device is already formatted
+/// as a swap device (i.e. with `mkswap`).
+pub fn swapon(device: &str) -> SshCommand {
+    cmd!("sudo swapon {}", device)
+}
+
+/// Add the executing user to the given group. Requires `sudo` permissions.
+pub fn add_to_group(group: &str) -> SshCommand {
+    cmd!("sudo usermod -aG {} `whoami`", group).use_bash()
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Below are utilies that actually run a command. These require a shell as input.
+///////////////////////////////////////////////////////////////////////////////
+
+/// Reboot and wait for the remote machine to come back up again.
+pub fn reboot(shell: &mut SshShell, dry_run: bool) -> Result<(), failure::Error> {
+    let _ = shell.run(cmd!("sudo reboot").dry_run(dry_run));
+
+    if !dry_run {
+        // If we try to reconnect immediately, the machine will not have gone down yet.
+        std::thread::sleep(std::time::Duration::from_secs(10));
+
+        // Attempt to reconnect.
+        shell.reconnect()?;
+    }
+
+    // Make sure it worked.
+    shell.run(cmd!("whoami").dry_run(dry_run))?;
+
+    Ok(())
 }
 
 /// Formats and mounts the given device as ext4 at the given mountpoint owned by the given user.
@@ -77,81 +126,68 @@ pub fn set_cpu_scaling_governor(shell: SshShell, gov: &str) -> Result<(), failur
 /// format_partition_as_ext4(root_shell, "/dev/sda4", "/home/foouser/")?;
 /// ```
 pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
-    shell: SshShell,
+    shell: &SshShell,
+    dry_run: bool,
     partition: &str,
     mount: P,
     owner: &str,
 ) -> Result<(), failure::Error> {
-    shell.run(cmd!("lsblk"))?;
+    shell.run(cmd!("lsblk").dry_run(dry_run))?;
 
     // Format partition
-    shell.run(cmd!(
-        "sudo parted -a optimal {} -s -- mkpart primary 0%% 100%%",
-        partition
-    ))?;
+    shell.run(
+        cmd!(
+            "sudo parted -a optimal {} -s -- mkpart primary 0%% 100%%",
+            partition
+        )
+        .dry_run(dry_run),
+    )?;
 
     // Make a filesystem on the first partition
-    shell.run(cmd!("sudo mkfs.ext4 {}", partition))?;
+    shell.run(cmd!("sudo mkfs.ext4 {}", partition).dry_run(dry_run))?;
 
     // Mount the FS in tmp
-    shell.run(cmd!("mkdir -p /tmp/tmp_mnt"))?;
-    shell.run(cmd!("sudo mount -t ext4 {} /tmp/tmp_mnt", partition))?;
-    shell.run(cmd!("sudo chown {} /tmp/tmp_mnt", owner))?;
+    shell.run(cmd!("mkdir -p /tmp/tmp_mnt").dry_run(dry_run))?;
+    shell.run(cmd!("sudo mount -t ext4 {} /tmp/tmp_mnt", partition).dry_run(dry_run))?;
+    shell.run(cmd!("sudo chown {} /tmp/tmp_mnt", owner).dry_run(dry_run))?;
 
     // Copy all existing files
-    shell.run(cmd!("rsync -a {} /tmp/tmp_mnt/", mount.as_ref().display()))?;
+    shell.run(cmd!("rsync -a {} /tmp/tmp_mnt/", mount.as_ref().display()).dry_run(dry_run))?;
 
     // Unmount from tmp
-    shell.run(cmd!("sync"))?;
-    shell.run(cmd!("sudo umount /tmp/tmp_mnt"))?;
+    shell.run(cmd!("sync").dry_run(dry_run))?;
+    shell.run(cmd!("sudo umount /tmp/tmp_mnt").dry_run(dry_run))?;
 
     // Mount the FS at `mount`
-    shell.run(cmd!(
-        "sudo mount -t ext4 {} {}",
-        partition,
-        mount.as_ref().display()
-    ))?;
-    shell.run(cmd!("sudo chown {} {}", owner, mount.as_ref().display()))?;
+    shell.run(
+        cmd!(
+            "sudo mount -t ext4 {} {}",
+            partition,
+            mount.as_ref().display()
+        )
+        .dry_run(dry_run),
+    )?;
+    shell.run(cmd!("sudo chown {} {}", owner, mount.as_ref().display()).dry_run(dry_run))?;
 
     // Add to /etc/fstab
     let uuid = shell
-        .run(cmd!("sudo blkid -o export {} | grep UUID", partition).use_bash())?
+        .run(
+            cmd!("sudo blkid -o export {} | grep UUID", partition)
+                .use_bash()
+                .dry_run(dry_run),
+        )?
         .stdout;
-    shell.run(cmd!(
-        r#"echo "{}    {}    ext4    defaults    0    1" | sudo tee -a /etc/fstab"#,
-        uuid,
-        mount.as_ref().display()
-    ))?;
+    shell.run(
+        cmd!(
+            r#"echo "{}    {}    ext4    defaults    0    1" | sudo tee -a /etc/fstab"#,
+            uuid,
+            mount.as_ref().display()
+        )
+        .dry_run(dry_run),
+    )?;
 
     // Print for info
-    shell.run(cmd!("lsblk"))?;
-
-    Ok(())
-}
-
-/// Turn off the swap device. Requires `sudo` permissions.
-pub fn swapoff(shell: &mut SshShell, device: &str) -> Result<(), failure::Error> {
-    shell.run(cmd!("sudo swapoff {}", device)).map(|_| ())
-}
-
-/// Turn on the swap device. Requires `sudo` permissions. Assumes the device is already formatted
-/// as a swap device (i.e. with `mkswap`).
-pub fn swapon(shell: &mut SshShell, device: &str) -> Result<(), failure::Error> {
-    shell.run(cmd!("sudo swapon {}", device)).map(|_| ())
-}
-
-/// Reboot and wait for the remote machine to come back up again.
-pub fn reboot(shell: &mut SshShell) -> Result<(), failure::Error> {
-    let _ = shell.run(cmd!("sudo reboot"));
-
-    // If we try to reconnect immediately, the machine will not have gone down yet.
-    std::thread::sleep(std::time::Duration::from_secs(10));
-
-    // Attempt to reconnect.
-    shell.reconnect()?;
-
-    // Make sure it worked.
-    shell.run(cmd!("whoami"))?;
+    shell.run(cmd!("lsblk").dry_run(dry_run))?;
 
     Ok(())
 }

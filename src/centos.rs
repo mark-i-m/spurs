@@ -1,15 +1,13 @@
 //! Functionality specific to Centos, RHEL, Amazon Linux, and other related distros.
 
-use crate::ssh::{SshCommand, SshShell};
+use crate::ssh::SshCommand;
 
 /// Install the given .rpm packages via `rpm`. Requires `sudo` priveleges.
-pub fn dpkg_install(shell: SshShell, pkg: &str) -> Result<(), failure::Error> {
-    shell.run(cmd!("sudo rpm -ivh {}", pkg)).map(|_| ())
+pub fn dpkg_install(pkg: &str) -> SshCommand {
+    cmd!("sudo rpm -ivh {}", pkg)
 }
 
 /// Install the given list of packages via `yum install`. Requires `sudo` priveleges.
-pub fn yum_install(shell: SshShell, pkgs: &[&str]) -> Result<(), failure::Error> {
-    shell
-        .run(cmd!("sudo yum install -y {}", pkgs.join(" ")))
-        .map(|_| ())
+pub fn yum_install(pkgs: &[&str]) -> SshCommand {
+    cmd!("sudo yum install -y {}", pkgs.join(" "))
 }

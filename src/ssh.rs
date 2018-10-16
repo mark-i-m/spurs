@@ -37,6 +37,7 @@ pub struct SshCommand {
     cwd: Option<PathBuf>,
     use_bash: bool,
     allow_error: bool,
+    dry_run: bool,
 }
 
 pub struct SshOutput {
@@ -60,15 +61,18 @@ pub struct SshSpawnHandle {
 }
 
 impl SshCommand {
+    /// Create a new builder for the given command with default options.
     pub fn new(cmd: &str) -> Self {
         SshCommand {
             cmd: cmd.to_owned(),
             cwd: None,
             use_bash: false,
             allow_error: false,
+            dry_run: false,
         }
     }
 
+    /// Change the current working directory to `cwd` before executing.
     pub fn cwd<P: AsRef<Path>>(self, cwd: P) -> Self {
         SshCommand {
             cwd: Some(cwd.as_ref().to_owned()),
@@ -76,6 +80,7 @@ impl SshCommand {
         }
     }
 
+    /// Execute using bash.
     pub fn use_bash(self) -> Self {
         SshCommand {
             use_bash: true,
@@ -83,9 +88,19 @@ impl SshCommand {
         }
     }
 
+    /// Allow a non-zero exit code. Normally, an error would occur and we would return early.
     pub fn allow_error(self) -> Self {
         SshCommand {
             allow_error: true,
+            ..self
+        }
+    }
+
+    /// Don't actually execute any command remotely. Just print the command that would be executed
+    /// and return success. Note that we still connect to the remote. This is useful for debugging.
+    pub fn dry_run(self, is_dry: bool) -> Self {
+        SshCommand {
+            dry_run: is_dry,
             ..self
         }
     }
@@ -213,6 +228,7 @@ impl SshShell {
             cmd,
             use_bash,
             allow_error,
+            dry_run,
         } = cmd_opts;
 
         // Print the raw command. We are going to modify it slightly before executing (e.g. to
@@ -235,14 +251,22 @@ impl SshShell {
         // print message
         println!("{}", console::style(msg).yellow().bold());
 
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+
+        // If dry run, close and return early without actually doing anything.
+        if dry_run {
+            chan.close()?;
+            chan.wait_close()?;
+
+            return Ok(SshOutput { stdout, stderr });
+        }
+
         // request a pty so that `sudo` commands work fine
         chan.request_pty("vt100", None, None)?;
 
         // execute cmd remotely
         chan.exec(&cmd)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
 
         // print stdout
         let mut buf = [0; 256];
@@ -321,9 +345,9 @@ impl SshSpawnHandle {
 #[macro_export]
 macro_rules! cmd {
     ($fmt:expr) => {
-        SshCommand::new(&format!($fmt))
+        $crate::ssh::SshCommand::new(&format!($fmt))
     };
     ($fmt:expr, $($arg:tt)*) => {
-        SshCommand::new(&format!($fmt, $($arg)*))
+        $crate::ssh::SshCommand::new(&format!($fmt, $($arg)*))
     };
 }
