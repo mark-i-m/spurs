@@ -280,18 +280,33 @@ impl SshShell {
         // print stdout
         let mut buf = [0; 256];
         while chan.read(&mut buf)? > 0 {
-            print!("{}", std::str::from_utf8(&buf).unwrap());
-            stdout.extend(std::str::from_utf8(&buf));
+            let out = std::str::from_utf8(&buf)
+                .unwrap()
+                .trim_right_matches("\u{0}");
+            print!("{}", out);
+            stdout.push_str(out);
+
+            // clear buf
+            buf.iter_mut().for_each(|x| *x = 0);
         }
 
         // close and wait for remote to close
         chan.close()?;
         chan.wait_close()?;
 
+        // clear buf
+        buf.iter_mut().for_each(|x| *x = 0);
+
         // print stderr
         while chan.stderr().read(&mut buf)? > 0 {
-            print!("{}", std::str::from_utf8(&buf).unwrap());
-            stderr.extend(std::str::from_utf8(&buf));
+            let err = std::str::from_utf8(&buf)
+                .unwrap()
+                .trim_right_matches("\u{0}");
+            print!("{}", err);
+            stderr.push_str(err);
+
+            // clear buf
+            buf.iter_mut().for_each(|x| *x = 0);
         }
 
         // check the exit status
