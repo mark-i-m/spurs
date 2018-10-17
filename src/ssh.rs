@@ -185,14 +185,14 @@ impl SshShell {
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
     pub fn reconnect(&mut self) -> Result<(), failure::Error> {
         loop {
-            print!("{}", console::style("Attempt Reconnect ... ").red().bold());
+            print!("{}", console::style("Attempt Reconnect ... ").red());
             match TcpStream::connect_timeout(&self.remote, DEFAULT_TIMEOUT / 2) {
                 Ok(tcp) => {
                     self.tcp = tcp;
                     break;
                 }
                 Err(_) => {
-                    println!("{}", console::style("failed, retrying").red().bold());
+                    println!("{}", console::style("failed, retrying").red());
                     std::thread::sleep(DEFAULT_TIMEOUT / 2);
                 }
             }
@@ -200,9 +200,7 @@ impl SshShell {
 
         println!(
             "{}",
-            console::style("TCP connected, doing SSH handshake")
-                .red()
-                .bold()
+            console::style("TCP connected, doing SSH handshake").red()
         );
 
         // Start an SSH session
