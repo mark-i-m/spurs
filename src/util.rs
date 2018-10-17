@@ -82,8 +82,19 @@ pub fn add_to_group(group: &str) -> SshCommand {
     cmd!("sudo usermod -aG {} `whoami`", group).use_bash()
 }
 
-pub fn reformat_drive(device: &str) -> SshCommand {
+/// Write a new general partition table (GPT) on the given device. Requires `sudo` permissions.
+///
+/// **NOTE**: this will destroy any data on the partition!
+pub fn write_gpt(device: &str) -> SshCommand {
     cmd!("sudo parted -a optimal {} -s -- mklabel gpt", device)
+}
+
+/// Create a new partition on the given device. Requires `sudo` permissions.
+pub fn create_partition(device: &str) -> SshCommand {
+    cmd!(
+        "sudo parted -a optimal {} -s -- mkpart primary 0% 100%",
+        device
+    )
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -112,7 +123,7 @@ pub fn reboot(shell: &mut SshShell, dry_run: bool) -> Result<(), failure::Error>
 /// The given partition and mountpoint are assumed to be valid (we don't check).  We will assume
 /// quite a few things for simplicity:
 /// - the disk _IS_ partitioned, but the partition is not formatted
-/// - the disk is mounted at the mountpoint, which is a valid directory
+/// - the disk should be mounted at the mountpoint, which is a valid directory
 /// - you have `sudo` permissions
 /// - `owner` is a valid username
 ///
@@ -140,15 +151,6 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
 ) -> Result<(), failure::Error> {
     shell.run(cmd!("lsblk").dry_run(dry_run))?;
 
-    // Format partition
-    shell.run(
-        cmd!(
-            "sudo parted -a optimal {} -s -- mkpart primary 0%% 100%%",
-            partition
-        )
-        .dry_run(dry_run),
-    )?;
-
     // Make a filesystem on the first partition
     shell.run(cmd!("sudo mkfs.ext4 {}", partition).dry_run(dry_run))?;
 
@@ -158,7 +160,7 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
     shell.run(cmd!("sudo chown {} /tmp/tmp_mnt", owner).dry_run(dry_run))?;
 
     // Copy all existing files
-    shell.run(cmd!("rsync -a {} /tmp/tmp_mnt/", mount.as_ref().display()).dry_run(dry_run))?;
+    shell.run(cmd!("rsync -a {}/ /tmp/tmp_mnt/", mount.as_ref().display()).dry_run(dry_run))?;
 
     // Unmount from tmp
     shell.run(cmd!("sync").dry_run(dry_run))?;
@@ -225,7 +227,12 @@ pub fn get_unpartitioned_devs(
     // Get the partitions of each device.
     let partitions: HashMap<_, _> = devices
         .iter()
-        .map(|&dev| (dev, get_partitions(shell, dev, dry_run)))
+        .map(|&dev| {
+            (
+                dev,
+                get_partitions(shell, &format!("/dev/{}", dev), dry_run),
+            )
+        })
         .collect();
 
     // Remove partitions and partitioned devices from the list of devices
