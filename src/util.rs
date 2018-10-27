@@ -180,11 +180,12 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
     // Add to /etc/fstab
     let uuid = shell
         .run(
-            cmd!("sudo blkid -o export {} | grep UUID", partition)
+            cmd!("sudo blkid -o export {} | grep UUID=", partition)
                 .use_bash()
                 .dry_run(dry_run),
         )?
         .stdout;
+    let uuid = uuid.trim();
     shell.run(
         cmd!(
             r#"echo "{}    {}    ext4    defaults    0    1" | sudo tee -a /etc/fstab"#,
