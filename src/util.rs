@@ -9,9 +9,16 @@
 //! There are also some utilities that don't construct or run commands. They are just useful
 //! functions that I wrote.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    net::{IpAddr, ToSocketAddrs},
+};
 
 use crate::ssh::{SshCommand, SshShell};
+
+///////////////////////////////////////////////////////////////////////////////
+// Common useful routines
+///////////////////////////////////////////////////////////////////////////////
 
 /// Given a string, encode all single quotes so that the whole string can be passed correctly as a
 /// single argument to a bash command.
@@ -52,6 +59,14 @@ pub fn escape_for_bash(s: &str) -> String {
     new.push('\'');
 
     new
+}
+
+/// Given a host:ip address, return `(host, ip)`.
+pub fn get_host_ip<A: ToSocketAddrs>(addr: A) -> (IpAddr, u16) {
+    let addr = addr.to_socket_addrs().unwrap().next().unwrap();
+    let ip = addr.ip();
+    let port = addr.port();
+    (ip, port)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -248,4 +263,50 @@ pub fn get_unpartitioned_devs(
     }
 
     Ok(devices.iter().map(|&dev| dev.to_owned()).collect())
+}
+
+/// Returns the list of devices mounted and their mountpoints. For example, `[("sda2", "/")]`.
+pub fn get_mounted_devs(
+    shell: &SshShell,
+    dry_run: bool,
+) -> Result<Vec<(String, String)>, failure::Error> {
+    let devices = shell
+        .run(cmd!("lsblk -o KNAME,MOUNTPOINT").dry_run(dry_run))?
+        .stdout;
+    let devices = devices.lines().skip(1);
+    let mut mounted = vec![];
+    for line in devices {
+        let split: Vec<_> = line.split(" \t\n").collect();
+        if split.len() > 1 {
+            mounted.push((split[0].to_owned(), split[1].to_owned()));
+        }
+    }
+    Ok(mounted)
+}
+
+/// Returns the human-readable size of the devices `devs`. For example, `["477G", "500M"]`.
+pub fn get_dev_sizes(
+    shell: &SshShell,
+    devs: &HashSet<String>,
+    dry_run: bool,
+) -> Result<Vec<String>, failure::Error> {
+    let per_dev = devs
+        .iter()
+        .map(|dev| shell.run(cmd!("lsblk -o SIZE /dev/{}", dev).dry_run(dry_run)));
+
+    let mut sizes = vec![];
+    for size in per_dev {
+        sizes.push(
+            size?
+                .stdout
+                .lines()
+                .skip(1)
+                .next()
+                .unwrap()
+                .trim()
+                .to_owned(),
+        );
+    }
+
+    Ok(sizes)
 }
