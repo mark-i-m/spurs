@@ -276,7 +276,11 @@ pub fn get_mounted_devs(
     let devices = devices.lines().skip(1);
     let mut mounted = vec![];
     for line in devices {
-        let split: Vec<_> = line.split(" \t\n").collect();
+        let split: Vec<_> = line
+            .split(char::is_whitespace)
+            .filter(|s| !s.is_empty())
+            .collect();
+        println!("{:?}", split);
         if split.len() > 1 {
             mounted.push((split[0].to_owned(), split[1].to_owned()));
         }
