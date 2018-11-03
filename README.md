@@ -1,5 +1,8 @@
 # spurs
 
+[![Latest version](https://img.shields.io/crates/v/spurs.svg)](https://crates.io/crates/spurs)
+[![Documentation](https://docs.rs/spurs/badge.svg)](https://docs.rs/spurs)
+
 Utilities for setting up and running experiments remotely.
 
 This is kind of a "living repo". I will add to it utilities as I find them
