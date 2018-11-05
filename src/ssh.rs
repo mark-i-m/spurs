@@ -22,10 +22,7 @@ pub enum SshError {
     #[fail(display = "no such key: {}", file)]
     KeyNotFound { file: String },
 
-    #[fail(
-        display = "authentication failed with private key: {:?}",
-        key
-    )]
+    #[fail(display = "authentication failed with private key: {:?}", key)]
     AuthFailed { key: PathBuf },
 
     #[fail(display = "non-zero exit ({}) for command: {}", exit, cmd)]
@@ -38,6 +35,7 @@ pub struct SshCommand {
     use_bash: bool,
     allow_error: bool,
     dry_run: bool,
+    no_pty: bool,
 }
 
 pub struct SshOutput {
@@ -70,6 +68,7 @@ impl SshCommand {
             use_bash: false,
             allow_error: false,
             dry_run: false,
+            no_pty: false,
         }
     }
 
@@ -102,6 +101,17 @@ impl SshCommand {
     pub fn dry_run(self, is_dry: bool) -> Self {
         SshCommand {
             dry_run: is_dry,
+            ..self
+        }
+    }
+
+    /// Don't request a psuedo-terminal (pty). It turns out that some commands behave differently
+    /// with a pty. I'm not really sure what causes this.
+    ///
+    /// NOTE: You need a pty for `sudo`.
+    pub fn no_pty(self) -> Self {
+        SshCommand {
+            no_pty: false,
             ..self
         }
     }
@@ -236,6 +246,7 @@ impl SshShell {
             use_bash,
             allow_error,
             dry_run,
+            no_pty,
         } = cmd_opts;
 
         // Print the raw command. We are going to modify it slightly before executing (e.g. to
@@ -270,7 +281,9 @@ impl SshShell {
         }
 
         // request a pty so that `sudo` commands work fine
-        chan.request_pty("vt100", None, None)?;
+        if !no_pty {
+            chan.request_pty("vt100", None, None)?;
+        }
 
         // execute cmd remotely
         chan.exec(&cmd)?;
