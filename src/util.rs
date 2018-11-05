@@ -195,7 +195,7 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
     // Add to /etc/fstab
     let uuid = shell
         .run(
-            cmd!("sudo blkid -o export {} | grep UUID=", partition)
+            cmd!("sudo blkid -o export {} | grep '^UUID='", partition)
                 .use_bash()
                 .dry_run(dry_run),
         )?
