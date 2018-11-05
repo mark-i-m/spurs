@@ -111,7 +111,7 @@ impl SshCommand {
     /// NOTE: You need a pty for `sudo`.
     pub fn no_pty(self) -> Self {
         SshCommand {
-            no_pty: false,
+            no_pty: true,
             ..self
         }
     }
