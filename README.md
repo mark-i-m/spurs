@@ -25,15 +25,34 @@ it also contains a bunch of utility routines that I have found useful.
 ```rust
 use spurs::{cmd, ssh::SshShell};
 
-let host = "1.2.3.4:22";
-let shell = SshShell::with_default_key(username, host)?;
-
 const FOO: &str = "foo";
+const HOST: &str = "1.2.3.4:22";
+const USER: &str = "user";
 
+// Create an SSH connection with host.
+// (host doesn't have to be a `&str`; it can be any `ToSocketAddrs` type)
+let shell = SshShell::with_default_key(USER, HOST)?;
+
+// Run some commands on HOST as USER.
+
+// ps -e | grep foo
 shell.run(cmd!("ps -e | grep {}", FOO).use_bash())?;
+
+// cd /home/user ; ls -a | grep user
 shell.run(cmd!("ls -a | grep user").cwd("/home/user/").use_bash())?;
+
+// sudo yum install -y qemu-kvm
 shell.run(spurs::centos::yum_install(&["qemu-kvm"]))?;
 ```
+
+It's also possible to
+- run commands in another thread and later wait for that thread
+- capture the stdout and stderr
+- allow a command to fail
+
+For more information please see [the docs](https://docs.rs/spurs). Feel free to
+open an issue on [the repo](https://github.com/mark-i-m/spurs) if anything is
+unclear.
 
 ## Usage
 
