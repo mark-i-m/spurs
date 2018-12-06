@@ -288,9 +288,9 @@ pub fn get_mounted_devs(
 }
 
 /// Returns the human-readable size of the devices `devs`. For example, `["477G", "500M"]`.
-pub fn get_dev_sizes(
+pub fn get_dev_sizes<S: std::hash::BuildHasher>(
     shell: &SshShell,
-    devs: &HashSet<String>,
+    devs: &HashSet<String, S>,
     dry_run: bool,
 ) -> Result<Vec<String>, failure::Error> {
     let per_dev = devs
@@ -299,16 +299,7 @@ pub fn get_dev_sizes(
 
     let mut sizes = vec![];
     for size in per_dev {
-        sizes.push(
-            size?
-                .stdout
-                .lines()
-                .skip(1)
-                .next()
-                .unwrap()
-                .trim()
-                .to_owned(),
-        );
+        sizes.push(size?.stdout.lines().nth(1).unwrap().trim().to_owned());
     }
 
     Ok(sizes)

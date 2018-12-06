@@ -176,7 +176,7 @@ impl SshShell {
         );
 
         Ok(SshShell {
-            tcp: tcp,
+            tcp,
             username: username.to_owned(),
             key: key.as_ref().to_owned(),
             remote,
@@ -293,7 +293,7 @@ impl SshShell {
         while chan.read(&mut buf)? > 0 {
             let out = std::str::from_utf8(&buf)
                 .unwrap()
-                .trim_right_matches("\u{0}");
+                .trim_right_matches('\u{0}');
             print!("{}", out);
             stdout.push_str(out);
 
@@ -312,7 +312,7 @@ impl SshShell {
         while chan.stderr().read(&mut buf)? > 0 {
             let err = std::str::from_utf8(&buf)
                 .unwrap()
-                .trim_right_matches("\u{0}");
+                .trim_right_matches('\u{0}');
             print!("{}", err);
             stderr.push_str(err);
 
@@ -323,11 +323,7 @@ impl SshShell {
         // check the exit status
         let exit = chan.exit_status()?;
         if exit != 0 && !allow_error {
-            return Err(SshError::NonZeroExit {
-                cmd: cmd.into(),
-                exit,
-            }
-            .into());
+            return Err(SshError::NonZeroExit { cmd, exit }.into());
         }
 
         // return output
