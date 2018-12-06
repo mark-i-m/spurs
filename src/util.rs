@@ -116,7 +116,7 @@ pub fn create_partition(device: &str) -> SshCommand {
 // Below are utilies that actually run a command. These require a shell as input.
 ///////////////////////////////////////////////////////////////////////////////
 
-/// Reboot and wait for the remote machine to come back up again.
+/// Reboot and wait for the remote machine to come back up again. Requires `sudo`.
 pub fn reboot(shell: &mut SshShell, dry_run: bool) -> Result<(), failure::Error> {
     let _ = shell.run(cmd!("sudo reboot").dry_run(dry_run));
 
