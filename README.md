@@ -58,5 +58,4 @@ unclear.
 
 Add the crate `spurs` to your `Cargo.toml` dependencies.
 
-This crate uses Rust 2018, so it's unstable until December 2018, but at that
-time, I believe it should become usable on stable rust.
+Requires stable Rust 1.31 or newer.
