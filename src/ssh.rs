@@ -11,6 +11,8 @@ use std::{
 
 use failure::Fail;
 
+use log::{debug, info, trace};
+
 use ssh2::Session;
 
 /// The default timeout for the TCP stream of a SSH connection.
@@ -29,6 +31,7 @@ pub enum SshError {
     NonZeroExit { cmd: String, exit: i32 },
 }
 
+#[derive(Debug)]
 pub struct SshCommand {
     cmd: String,
     cwd: Option<PathBuf>,
@@ -38,6 +41,7 @@ pub struct SshCommand {
     no_pty: bool,
 }
 
+#[derive(Debug)]
 pub struct SshOutput {
     pub stdout: String,
     pub stderr: String,
@@ -124,7 +128,7 @@ impl SshShell {
     /// ```rust,ignore
     /// SshShell::with_default_key("markm", "myhost:22")?;
     /// ```
-    pub fn with_default_key<A: ToSocketAddrs>(
+    pub fn with_default_key<A: ToSocketAddrs + std::fmt::Debug>(
         username: &str,
         remote: A,
     ) -> Result<Self, failure::Error> {
@@ -137,6 +141,7 @@ impl SshShell {
             }
             .into());
         };
+
         SshShell::with_key(username, remote, home.join(DEFAULT_KEY_SUFFIX))
     }
 
@@ -146,20 +151,28 @@ impl SshShell {
     /// ```rust,ignore
     /// SshShell::with_key("markm", "myhost:22", "/home/foo/.ssh/id_rsa")?;
     /// ```
-    pub fn with_key<A: ToSocketAddrs, P: AsRef<Path>>(
+    pub fn with_key<A: ToSocketAddrs + std::fmt::Debug, P: AsRef<Path>>(
         username: &str,
         remote: A,
         key: P,
     ) -> Result<Self, failure::Error> {
+        info!("New SSH shell: {}@{:?}", username, remote);
+        debug!("Using key: {:?}", key.as_ref());
+
+        debug!("Create new TCP stream...");
+
         // Create a TCP connection
         let tcp = TcpStream::connect(&remote)?;
         tcp.set_read_timeout(Some(DEFAULT_TIMEOUT))?;
         tcp.set_write_timeout(Some(DEFAULT_TIMEOUT))?;
         let remote = remote.to_socket_addrs().unwrap().next().unwrap();
 
+        debug!("Create new SSH session...");
+
         // Start an SSH session
         let mut sess = Session::new().unwrap();
         sess.handshake(&tcp)?;
+        trace!("SSH session handshook.");
         sess.userauth_pubkey_file(username, None, key.as_ref(), None)?;
         if !sess.authenticated() {
             return Err(SshError::AuthFailed {
@@ -167,6 +180,7 @@ impl SshShell {
             }
             .into());
         }
+        trace!("SSH session authenticated.");
 
         println!(
             "{}",
@@ -190,10 +204,17 @@ impl SshShell {
     /// default: we default to actually running the commands.
     pub fn toggle_dry_run(&mut self) {
         self.dry_run_mode = !self.dry_run_mode;
+        info!(
+            "Toggled dry run mode: {}",
+            if self.dry_run_mode { "on" } else { "off" }
+        );
     }
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
     pub fn reconnect(&mut self) -> Result<(), failure::Error> {
+        info!("Reconnect attempt.");
+
+        trace!("Attempt to create new TCP stream...");
         loop {
             print!("{}", console::style("Attempt Reconnect ... ").red());
             match TcpStream::connect_timeout(&self.remote, DEFAULT_TIMEOUT / 2) {
@@ -201,7 +222,8 @@ impl SshShell {
                     self.tcp = tcp;
                     break;
                 }
-                Err(_) => {
+                Err(e) => {
+                    trace!("{:?}", e);
                     println!("{}", console::style("failed, retrying").red());
                     std::thread::sleep(DEFAULT_TIMEOUT / 2);
                 }
@@ -214,8 +236,10 @@ impl SshShell {
         );
 
         // Start an SSH session
+        debug!("Attempt to create new SSH session...");
         let mut sess = Session::new().unwrap();
         sess.handshake(&self.tcp)?;
+        trace!("Handshook!");
         sess.userauth_pubkey_file(&self.username, None, self.key.as_ref(), None)?;
         if !sess.authenticated() {
             return Err(SshError::AuthFailed {
@@ -223,6 +247,7 @@ impl SshShell {
             }
             .into());
         }
+        trace!("authenticated!");
 
         self.sess = Arc::new(Mutex::new(sess));
 
@@ -240,6 +265,8 @@ impl SshShell {
         mut chan: ssh2::Channel,
         cmd_opts: SshCommand,
     ) -> Result<SshOutput, failure::Error> {
+        debug!("run_with_chan_and_opts({:?})", cmd_opts);
+
         let SshCommand {
             cwd,
             cmd,
@@ -260,11 +287,15 @@ impl SshShell {
             cmd
         };
 
+        debug!("After shell escaping: {:?}", cmd);
+
         let cmd = if let Some(cwd) = cwd {
             format!("cd {} ; {}", cwd.display(), cmd)
         } else {
             cmd
         };
+
+        debug!("After cwd: {:?}", cmd);
 
         // print message
         println!("{}", console::style(msg).yellow().bold());
@@ -277,16 +308,22 @@ impl SshShell {
             chan.close()?;
             chan.wait_close()?;
 
+            debug!("Closed channel after dry run.");
+
             return Ok(SshOutput { stdout, stderr });
         }
 
         // request a pty so that `sudo` commands work fine
         if !no_pty {
             chan.request_pty("vt100", None, None)?;
+            debug!("Requested pty.");
         }
 
         // execute cmd remotely
+        debug!("Execute command remotely (asynchronous)...");
         chan.exec(&cmd)?;
+
+        trace!("Read stdout...");
 
         // print stdout
         let mut buf = [0; 256];
@@ -301,12 +338,18 @@ impl SshShell {
             buf.iter_mut().for_each(|x| *x = 0);
         }
 
+        trace!("No more stdout.");
+
         // close and wait for remote to close
         chan.close()?;
         chan.wait_close()?;
 
+        debug!("Command completed remotely.");
+
         // clear buf
         buf.iter_mut().for_each(|x| *x = 0);
+
+        trace!("Read stderr...");
 
         // print stderr
         while chan.stderr().read(&mut buf)? > 0 {
@@ -320,11 +363,17 @@ impl SshShell {
             buf.iter_mut().for_each(|x| *x = 0);
         }
 
+        trace!("No more stderr.");
+        debug!("Checking exit status.");
+
         // check the exit status
         let exit = chan.exit_status()?;
+        debug!("Exit status: {}", exit);
         if exit != 0 && !allow_error {
             return Err(SshError::NonZeroExit { cmd, exit }.into());
         }
+
+        trace!("Done with command.");
 
         // return output
         Ok(SshOutput { stdout, stderr })
@@ -334,7 +383,9 @@ impl SshShell {
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     pub fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
+        debug!("run(cmd)");
         let sess = self.sess.lock().unwrap();
+        debug!("Attempt to crate channel...");
         let chan = sess.channel_session()?;
         let cmd = if self.dry_run_mode {
             cmd.dry_run(true)
@@ -349,25 +400,31 @@ impl SshShell {
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     pub fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
+        debug!("spawn(cmd)");
         let sess = self.sess.clone();
         let cmd = if self.dry_run_mode {
             cmd.dry_run(true)
         } else {
             cmd
         };
-        Ok(SshSpawnHandle {
-            thread_handle: std::thread::spawn(move || {
-                let sess = sess.lock().unwrap();
-                let chan = sess.channel_session()?;
-                Self::run_with_chan_and_opts(chan, cmd)
-            }),
-        })
+
+        let thread_handle = std::thread::spawn(move || {
+            let sess = sess.lock().unwrap();
+            debug!("Attempt to crate channel for spawned command...");
+            let chan = sess.channel_session()?;
+            Self::run_with_chan_and_opts(chan, cmd)
+        });
+
+        debug!("spawned thread for command.");
+
+        Ok(SshSpawnHandle { thread_handle })
     }
 }
 
 impl SshSpawnHandle {
     /// Block until the remote command completes.
     pub fn join(self) -> Result<SshOutput, failure::Error> {
+        debug!("Blocking on spawned commmand.");
         self.thread_handle.join().unwrap()
     }
 }
