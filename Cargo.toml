@@ -1,6 +1,6 @@
 [package]
 name = "spurs"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["mark-i-m"]
 edition = "2018"
 license = "Apache-2.0"
@@ -17,7 +17,7 @@ categories = ["science"]
 [dependencies]
 ssh2 = "0.3.3"
 dirs = "1.0.4"
-failure = "0.1.2"
-failure_derive = "0.1.2"
-console = "0.6.2"
+failure = "0.1.4"
+failure_derive = "0.1.4"
+console = "0.7.2"
 log = "0.4.6"
