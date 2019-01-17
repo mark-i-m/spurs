@@ -10,7 +10,7 @@
 //! functions that I wrote.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     net::{IpAddr, ToSocketAddrs},
 };
 
@@ -122,6 +122,7 @@ pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), failure::Er
 
     if !dry_run {
         // If we try to reconnect immediately, the machine will not have gone down yet.
+        #[cfg(not(test))]
         std::thread::sleep(std::time::Duration::from_secs(10));
 
         // Attempt to reconnect.
@@ -238,7 +239,7 @@ pub fn get_unpartitioned_devs(
 ) -> Result<HashSet<String>, failure::Error> {
     // List all devs
     let lsblk = shell.run(cmd!("lsblk -o KNAME").dry_run(dry_run))?.stdout;
-    let mut devices: HashSet<&str> = lsblk.lines().map(|line| line.trim()).skip(1).collect();
+    let mut devices: BTreeSet<&str> = lsblk.lines().map(|line| line.trim()).skip(1).collect();
 
     // Get the partitions of each device.
     let partitions: HashMap<_, _> = devices
@@ -311,6 +312,8 @@ pub fn get_dev_sizes<S: std::hash::BuildHasher>(
 
 #[cfg(test)]
 mod test {
+    use log::info;
+
     use crate::ssh::{Execute, SshCommand, SshOutput};
 
     /// An `Execute` implementation for use in tests.
@@ -320,6 +323,13 @@ mod test {
 
     impl TestSshShell {
         pub fn new() -> Self {
+            // init logging if never done before...
+            use std::sync::Once;
+            static START: Once = Once::new();
+            START.call_once(|| {
+                env_logger::init();
+            });
+
             Self {
                 commands: std::sync::Mutex::new(vec![]),
             }
@@ -335,33 +345,68 @@ mod test {
         type SshSpawnHandle = TestSshSpawnHandle;
 
         fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
-            // TODO
+            info!("Test run({:#?})", cmd);
+
+            enum FakeCommand {
+                Blkid,
+                Kname1,
+                Kname2,
+                Kname3,
+                Kname4,
+                KnameMountpoint,
+                Unknown,
+            }
 
             let short_cmd = {
                 if cmd.cmd().contains("blkid") {
-                    "blkid"
+                    FakeCommand::Blkid
+                } else if cmd.cmd().contains("KNAME /dev/foobar") {
+                    FakeCommand::Kname1
+                } else if cmd.cmd().contains("KNAME /dev/sd") {
+                    FakeCommand::Kname3
+                } else if cmd.cmd().contains("KNAME /dev/") {
+                    FakeCommand::Kname4
+                } else if cmd.cmd().contains("KNAME,MOUNTPOINT") {
+                    FakeCommand::KnameMountpoint
+                } else if cmd.cmd().contains("KNAME") {
+                    FakeCommand::Kname2
                 } else {
-                    "unknown"
+                    FakeCommand::Unknown
                 }
             };
 
             self.commands.lock().unwrap().push(cmd);
 
+            let stdout = match short_cmd {
+                FakeCommand::Blkid => "UUID=1fb958bf-de7e-428a-a0b7-a598f22e96fa\n".into(),
+                FakeCommand::Kname1 => "KNAME\nfoobar\nfoo\nbar\nbaz\n".into(),
+                FakeCommand::Kname2 => "KNAME\nfoobar\nfoo\nbar\nbaz\nsdb\nsdc".into(),
+                FakeCommand::Kname3 => "KNAME\nsdb".into(),
+                FakeCommand::Kname4 => "KNAME\nfoo".into(),
+                FakeCommand::KnameMountpoint => {
+                    "KNAME MOUNTPOINT\nfoobar\nfoo  /mnt/foo\nbar  /mnt/bar\nbaz\nsdb\nsdc".into()
+                }
+                FakeCommand::Unknown => String::new(),
+            };
+
+            info!("Output: {}", stdout);
+
             Ok(SshOutput {
-                stdout: match short_cmd {
-                    "blkid" => "UUID=1fb958bf-de7e-428a-a0b7-a598f22e96fa\n".into(),
-                    _ => String::new(),
-                },
+                stdout,
                 stderr: String::new(),
             })
         }
 
         fn spawn(&self, cmd: SshCommand) -> Result<Self::SshSpawnHandle, failure::Error> {
+            info!("Test spawn({:#?})", cmd);
+
             // TODO
             Ok(TestSshSpawnHandle { command: cmd })
         }
 
         fn reconnect(&mut self) -> Result<(), failure::Error> {
+            info!("Test reconnect");
+
             Ok(())
         }
     }
@@ -373,6 +418,10 @@ mod test {
         ($shell:expr, $($cmd:expr),+ $(,)?) => {
             let expected: &[SshCommand] = &[$($cmd),+];
             let locked = $shell.commands.lock().unwrap();
+
+            if locked.len() != expected.len() {
+                panic!("Number of commands run does not match expected number: \n Expected: {:#?}\nActual:  {:#?}====\n", expected, locked);
+            }
 
             let mut fail = false;
             let mut message = "Actual commands did not match expected commands: \n".to_owned();
@@ -540,5 +589,67 @@ mod test {
             SshCommand::make_cmd(r#"echo "UUID=1fb958bf-de7e-428a-a0b7-a598f22e96fa    /mnt/point/    ext4    defaults    0    1" | sudo tee -a /etc/fstab"#, None, false, false, false, false),
             SshCommand::make_cmd("lsblk", None, false, false, false, false),
         };
+    }
+
+    #[test]
+    fn test_get_partitions() {
+        let mut shell = TestSshShell::new();
+        let partitions = super::get_partitions(&mut shell, "/dev/foobar", false).unwrap();
+        expect_cmd_sequence! {
+            shell,
+            SshCommand::make_cmd("lsblk -o KNAME /dev/foobar", None, false, false, false, false),
+        }
+        assert_eq!(
+            {
+                let mut set = std::collections::HashSet::new();
+                set.insert("foo".into());
+                set.insert("bar".into());
+                set.insert("baz".into());
+                set
+            },
+            partitions
+        );
+    }
+
+    #[test]
+    fn test_get_unpartitioned_devices() {
+        let mut shell = TestSshShell::new();
+        let devs = super::get_unpartitioned_devs(&mut shell, false).unwrap();
+        expect_cmd_sequence! {
+            shell,
+            SshCommand::make_cmd("lsblk -o KNAME", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o KNAME /dev/bar", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o KNAME /dev/baz", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o KNAME /dev/foo", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o KNAME /dev/foobar", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o KNAME /dev/sdb", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o KNAME /dev/sdc", None, false, false, false, false),
+        }
+        assert_eq!(
+            {
+                let mut set = std::collections::HashSet::new();
+                set.insert("sdb".into());
+                set.insert("sdc".into());
+                set
+            },
+            devs
+        );
+    }
+
+    #[test]
+    fn test_get_mounted_devs() {
+        let mut shell = TestSshShell::new();
+        let devs = super::get_mounted_devs(&mut shell, false).unwrap();
+        expect_cmd_sequence! {
+            shell,
+            SshCommand::make_cmd("lsblk -o KNAME,MOUNTPOINT", None, false, false, false, false),
+        }
+        assert_eq!(
+            vec![
+                ("foo".to_owned(), "/mnt/foo".to_owned()),
+                ("bar".to_owned(), "/mnt/bar".to_owned())
+            ],
+            devs
+        );
     }
 }
