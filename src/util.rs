@@ -289,9 +289,9 @@ pub fn get_mounted_devs(
 }
 
 /// Returns the human-readable size of the devices `devs`. For example, `["477G", "500M"]`.
-pub fn get_dev_sizes<S: std::hash::BuildHasher>(
+pub fn get_dev_sizes(
     shell: &impl Execute,
-    devs: &HashSet<String, S>,
+    devs: Vec<&str>,
     dry_run: bool,
 ) -> Result<Vec<String>, failure::Error> {
     let per_dev = devs
@@ -354,6 +354,9 @@ mod test {
                 Kname3,
                 Kname4,
                 KnameMountpoint,
+                Size1,
+                Size2,
+                Size3,
                 Unknown,
             }
 
@@ -370,6 +373,12 @@ mod test {
                     FakeCommand::KnameMountpoint
                 } else if cmd.cmd().contains("KNAME") {
                     FakeCommand::Kname2
+                } else if cmd.cmd().contains("SIZE /dev/sda") {
+                    FakeCommand::Size1
+                } else if cmd.cmd().contains("SIZE /dev/sdb") {
+                    FakeCommand::Size2
+                } else if cmd.cmd().contains("SIZE /dev/sdc") {
+                    FakeCommand::Size3
                 } else {
                     FakeCommand::Unknown
                 }
@@ -386,6 +395,9 @@ mod test {
                 FakeCommand::KnameMountpoint => {
                     "KNAME MOUNTPOINT\nfoobar\nfoo  /mnt/foo\nbar  /mnt/bar\nbaz\nsdb\nsdc".into()
                 }
+                FakeCommand::Size1 => "SIZE\n477G".into(),
+                FakeCommand::Size2 => "SIZE\n400G".into(),
+                FakeCommand::Size3 => "SIZE\n500G".into(),
                 FakeCommand::Unknown => String::new(),
             };
 
@@ -399,8 +411,6 @@ mod test {
 
         fn spawn(&self, cmd: SshCommand) -> Result<Self::SshSpawnHandle, failure::Error> {
             info!("Test spawn({:#?})", cmd);
-
-            // TODO
             Ok(TestSshSpawnHandle { command: cmd })
         }
 
@@ -651,5 +661,18 @@ mod test {
             ],
             devs
         );
+    }
+
+    #[test]
+    fn test_get_dev_sizes() {
+        let mut shell = TestSshShell::new();
+        let devs = super::get_dev_sizes(&mut shell, vec!["sda", "sdb", "sdc"], false).unwrap();
+        expect_cmd_sequence! {
+            shell,
+            SshCommand::make_cmd("lsblk -o SIZE /dev/sda", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o SIZE /dev/sdb", None, false, false, false, false),
+            SshCommand::make_cmd("lsblk -o SIZE /dev/sdc", None, false, false, false, false),
+        }
+        assert_eq!(vec!["477G".to_owned(), "400G".into(), "500G".into()], devs);
     }
 }
