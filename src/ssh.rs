@@ -63,6 +63,25 @@ pub struct SshSpawnHandle {
     thread_handle: JoinHandle<Result<SshOutput, failure::Error>>,
 }
 
+/// A trait representing types that can run an `SshCommand`.
+pub trait Execute {
+    type SshSpawnHandle;
+
+    /// Run a command on the remote machine, blocking until the command completes.
+    ///
+    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
+    fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error>;
+
+    /// Run a command on the remote machine, without blocking until the command completes. A handle
+    /// is returned, which one can `join` on to wait for process completion.
+    ///
+    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
+    fn spawn(&self, cmd: SshCommand) -> Result<Self::SshSpawnHandle, failure::Error>;
+
+    /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
+    fn reconnect(&mut self) -> Result<(), failure::Error>;
+}
+
 impl SshCommand {
     /// Create a new builder for the given command with default options.
     pub fn new(cmd: &str) -> Self {
@@ -123,7 +142,7 @@ impl SshCommand {
     /// Helper for tests that makes a `SshCommand` with the given values.
     #[cfg(test)]
     pub fn make_cmd(
-        cmd: String,
+        cmd: &str,
         cwd: Option<PathBuf>,
         use_bash: bool,
         allow_error: bool,
@@ -131,13 +150,19 @@ impl SshCommand {
         no_pty: bool,
     ) -> Self {
         SshCommand {
-            cmd,
+            cmd: cmd.into(),
             cwd,
             use_bash,
             allow_error,
             dry_run,
             no_pty,
         }
+    }
+
+    /// Helper for tests to get the command from this `SshCommand`.
+    #[cfg(test)]
+    pub fn cmd(&self) -> &str {
+        &self.cmd
     }
 }
 
@@ -228,57 +253,6 @@ impl SshShell {
             "Toggled dry run mode: {}",
             if self.dry_run_mode { "on" } else { "off" }
         );
-    }
-
-    /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
-    pub fn reconnect(&mut self) -> Result<(), failure::Error> {
-        info!("Reconnect attempt.");
-
-        trace!("Attempt to create new TCP stream...");
-        loop {
-            print!("{}", console::style("Attempt Reconnect ... ").red());
-            match TcpStream::connect_timeout(&self.remote, DEFAULT_TIMEOUT / 2) {
-                Ok(tcp) => {
-                    self.tcp = tcp;
-                    break;
-                }
-                Err(e) => {
-                    trace!("{:?}", e);
-                    println!("{}", console::style("failed, retrying").red());
-                    std::thread::sleep(DEFAULT_TIMEOUT / 2);
-                }
-            }
-        }
-
-        println!(
-            "{}",
-            console::style("TCP connected, doing SSH handshake").red()
-        );
-
-        // Start an SSH session
-        debug!("Attempt to create new SSH session...");
-        let mut sess = Session::new().unwrap();
-        sess.handshake(&self.tcp)?;
-        trace!("Handshook!");
-        sess.userauth_pubkey_file(&self.username, None, self.key.as_ref(), None)?;
-        if !sess.authenticated() {
-            return Err(SshError::AuthFailed {
-                key: self.key.clone(),
-            }
-            .into());
-        }
-        trace!("authenticated!");
-
-        self.sess = Arc::new(Mutex::new(sess));
-
-        println!(
-            "{}",
-            console::style(format!("{}@{}", self.username, self.remote))
-                .green()
-                .bold()
-        );
-
-        Ok(())
     }
 
     fn run_with_chan_and_opts(
@@ -398,11 +372,15 @@ impl SshShell {
         // return output
         Ok(SshOutput { stdout, stderr })
     }
+}
+
+impl Execute for SshShell {
+    type SshSpawnHandle = SshSpawnHandle;
 
     /// Run a command on the remote machine, blocking until the command completes.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    pub fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
+    fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
         debug!("run(cmd)");
         let sess = self.sess.lock().unwrap();
         debug!("Attempt to crate channel...");
@@ -419,7 +397,7 @@ impl SshShell {
     /// is returned, which one can `join` on to wait for process completion.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    pub fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
+    fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
         debug!("spawn(cmd)");
         let sess = self.sess.clone();
         let cmd = if self.dry_run_mode {
@@ -438,6 +416,57 @@ impl SshShell {
         debug!("spawned thread for command.");
 
         Ok(SshSpawnHandle { thread_handle })
+    }
+
+    /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
+    fn reconnect(&mut self) -> Result<(), failure::Error> {
+        info!("Reconnect attempt.");
+
+        trace!("Attempt to create new TCP stream...");
+        loop {
+            print!("{}", console::style("Attempt Reconnect ... ").red());
+            match TcpStream::connect_timeout(&self.remote, DEFAULT_TIMEOUT / 2) {
+                Ok(tcp) => {
+                    self.tcp = tcp;
+                    break;
+                }
+                Err(e) => {
+                    trace!("{:?}", e);
+                    println!("{}", console::style("failed, retrying").red());
+                    std::thread::sleep(DEFAULT_TIMEOUT / 2);
+                }
+            }
+        }
+
+        println!(
+            "{}",
+            console::style("TCP connected, doing SSH handshake").red()
+        );
+
+        // Start an SSH session
+        debug!("Attempt to create new SSH session...");
+        let mut sess = Session::new().unwrap();
+        sess.handshake(&self.tcp)?;
+        trace!("Handshook!");
+        sess.userauth_pubkey_file(&self.username, None, self.key.as_ref(), None)?;
+        if !sess.authenticated() {
+            return Err(SshError::AuthFailed {
+                key: self.key.clone(),
+            }
+            .into());
+        }
+        trace!("authenticated!");
+
+        self.sess = Arc::new(Mutex::new(sess));
+
+        println!(
+            "{}",
+            console::style(format!("{}@{}", self.username, self.remote))
+                .green()
+                .bold()
+        );
+
+        Ok(())
     }
 }
 
