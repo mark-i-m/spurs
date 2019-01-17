@@ -304,3 +304,130 @@ pub fn get_dev_sizes<S: std::hash::BuildHasher>(
 
     Ok(sizes)
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// Tests
+///////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod test {
+    use crate::ssh::SshCommand;
+
+    mod test_escape_for_bash {
+        use super::super::escape_for_bash;
+
+        #[test]
+        fn simple() {
+            const TEST_STRING: &str = "ls";
+            assert_eq!(escape_for_bash(TEST_STRING), "'ls'");
+        }
+
+        #[test]
+        fn more_complex() {
+            const TEST_STRING: &str = r#"echo '$HELLOWORLD="hello world"' | grep "hello""#;
+            assert_eq!(
+                escape_for_bash(TEST_STRING),
+                r#"'echo '"'"'$HELLOWORLD="hello world"'"'"' | grep "hello"'"#
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_host_ip() {
+        const TEST_ADDR: &str = "localhost:2303";
+        let (addr, port) = super::get_host_ip(TEST_ADDR);
+
+        assert_eq!(addr, "127.0.0.1".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(port, 2303);
+    }
+
+    #[test]
+    fn test_set_cpu_scaling_governor() {
+        assert_eq!(
+            super::set_cpu_scaling_governor("foobar"),
+            SshCommand::make_cmd(
+                "sudo cpupower frequency-set -g foobar".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn test_swapoff() {
+        assert_eq!(
+            super::swapoff("foobar"),
+            SshCommand::make_cmd(
+                "sudo swapoff foobar".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn test_swapon() {
+        assert_eq!(
+            super::swapon("foobar"),
+            SshCommand::make_cmd(
+                "sudo swapon foobar".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn test_add_to_group() {
+        assert_eq!(
+            super::add_to_group("foobar"),
+            SshCommand::make_cmd(
+                "sudo usermod -aG foobar `whoami`".into(),
+                None,
+                true, // use_bash
+                false,
+                false,
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn test_write_gpt() {
+        assert_eq!(
+            super::write_gpt("foobar"),
+            SshCommand::make_cmd(
+                "sudo parted -a optimal foobar -s -- mklabel gpt".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn test_create_partition() {
+        assert_eq!(
+            super::create_partition("foobar"),
+            SshCommand::make_cmd(
+                "sudo parted -a optimal foobar -s -- mkpart primary 0% 100%".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            )
+        );
+    }
+}

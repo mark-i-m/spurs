@@ -11,3 +11,38 @@ pub fn dpkg_install(pkg: &str) -> SshCommand {
 pub fn apt_install(pkgs: &[&str]) -> SshCommand {
     cmd!("sudo apt-get -y install {}", pkgs.join(" "))
 }
+
+#[cfg(test)]
+mod test {
+    use crate::ssh::SshCommand;
+
+    #[test]
+    fn test_dpkg_install() {
+        assert_eq!(
+            super::dpkg_install("foobar"),
+            SshCommand::make_cmd(
+                "sudo dpkg -i foobar".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            ),
+        );
+    }
+
+    #[test]
+    fn test_apt_install() {
+        assert_eq!(
+            super::apt_install(&["foobar"]),
+            SshCommand::make_cmd(
+                "sudo apt-get -y install foobar".into(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            ),
+        );
+    }
+}

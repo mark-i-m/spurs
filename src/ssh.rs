@@ -31,7 +31,7 @@ pub enum SshError {
     NonZeroExit { cmd: String, exit: i32 },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SshCommand {
     cmd: String,
     cwd: Option<PathBuf>,
@@ -117,6 +117,26 @@ impl SshCommand {
         SshCommand {
             no_pty: true,
             ..self
+        }
+    }
+
+    /// Helper for tests that makes a `SshCommand` with the given values.
+    #[cfg(test)]
+    pub fn make_cmd(
+        cmd: String,
+        cwd: Option<PathBuf>,
+        use_bash: bool,
+        allow_error: bool,
+        dry_run: bool,
+        no_pty: bool,
+    ) -> Self {
+        SshCommand {
+            cmd,
+            cwd,
+            use_bash,
+            allow_error,
+            dry_run,
+            no_pty,
         }
     }
 }
