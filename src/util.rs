@@ -14,7 +14,7 @@ use std::{
     net::{IpAddr, ToSocketAddrs},
 };
 
-use crate::ssh::{SshCommand, SshShell};
+use crate::ssh::{Execute, SshCommand};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common useful routines
@@ -117,7 +117,7 @@ pub fn create_partition(device: &str) -> SshCommand {
 ///////////////////////////////////////////////////////////////////////////////
 
 /// Reboot and wait for the remote machine to come back up again. Requires `sudo`.
-pub fn reboot(shell: &mut SshShell, dry_run: bool) -> Result<(), failure::Error> {
+pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), failure::Error> {
     let _ = shell.run(cmd!("sudo reboot").dry_run(dry_run));
 
     if !dry_run {
@@ -158,7 +158,7 @@ pub fn reboot(shell: &mut SshShell, dry_run: bool) -> Result<(), failure::Error>
 /// format_partition_as_ext4(root_shell, "/dev/sda4", "/home/foouser/")?;
 /// ```
 pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
-    shell: &SshShell,
+    shell: &impl Execute,
     dry_run: bool,
     partition: &str,
     mount: P,
@@ -218,7 +218,7 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
 
 /// Returns a list of partitions of the given device. For example, `["sda1", "sda2"]`.
 pub fn get_partitions(
-    shell: &SshShell,
+    shell: &impl Execute,
     device: &str,
     dry_run: bool,
 ) -> Result<HashSet<String>, failure::Error> {
@@ -233,7 +233,7 @@ pub fn get_partitions(
 
 /// Returns a list of devices with no partitions. For example, `["sda", "sdb"]`.
 pub fn get_unpartitioned_devs(
-    shell: &SshShell,
+    shell: &impl Execute,
     dry_run: bool,
 ) -> Result<HashSet<String>, failure::Error> {
     // List all devs
@@ -267,7 +267,7 @@ pub fn get_unpartitioned_devs(
 
 /// Returns the list of devices mounted and their mountpoints. For example, `[("sda2", "/")]`.
 pub fn get_mounted_devs(
-    shell: &SshShell,
+    shell: &impl Execute,
     dry_run: bool,
 ) -> Result<Vec<(String, String)>, failure::Error> {
     let devices = shell
@@ -289,7 +289,7 @@ pub fn get_mounted_devs(
 
 /// Returns the human-readable size of the devices `devs`. For example, `["477G", "500M"]`.
 pub fn get_dev_sizes<S: std::hash::BuildHasher>(
-    shell: &SshShell,
+    shell: &impl Execute,
     devs: &HashSet<String, S>,
     dry_run: bool,
 ) -> Result<Vec<String>, failure::Error> {
@@ -311,7 +311,59 @@ pub fn get_dev_sizes<S: std::hash::BuildHasher>(
 
 #[cfg(test)]
 mod test {
-    use crate::ssh::SshCommand;
+    use crate::ssh::{Execute, SshCommand, SshOutput};
+
+    /// An `Execute` implementation for use in tests.
+    pub struct TestSshShell {
+        pub commands: std::sync::Mutex<Vec<SshCommand>>,
+    }
+
+    impl TestSshShell {
+        pub fn new() -> Self {
+            Self {
+                commands: std::sync::Mutex::new(vec![]),
+            }
+        }
+    }
+
+    /// A spawn handle for use in tests.
+    pub struct TestSshSpawnHandle {
+        pub command: SshCommand,
+    }
+
+    impl Execute for TestSshShell {
+        type SshSpawnHandle = TestSshSpawnHandle;
+
+        fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
+            // TODO
+
+            self.commands.lock().unwrap().push(cmd);
+
+            Ok(SshOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        }
+
+        fn spawn(&self, cmd: SshCommand) -> Result<Self::SshSpawnHandle, failure::Error> {
+            // TODO
+            Ok(TestSshSpawnHandle { command: cmd })
+        }
+
+        fn reconnect(&mut self) -> Result<(), failure::Error> {
+            Ok(())
+        }
+    }
+
+    macro_rules! expect_cmd_sequence {
+        ($shell:expr) => {
+            assert!($shell.commands.is_empty());
+        };
+        ($shell:expr, $($cmd:expr),+ $(,)?) => {
+            let expected: &[SshCommand] = &[$($cmd),+];
+            assert_eq!(**$shell.commands.lock().unwrap(), *expected);
+        };
+    }
 
     mod test_escape_for_bash {
         use super::super::escape_for_bash;
@@ -429,5 +481,16 @@ mod test {
                 false,
             )
         );
+    }
+
+    #[test]
+    fn test_reboot() {
+        let mut shell = TestSshShell::new();
+        super::reboot(&mut shell, false).unwrap();
+        expect_cmd_sequence! {
+            shell,
+            SshCommand::make_cmd("sudo reboot", None, false, false, false, false),
+            SshCommand::make_cmd("whoami", None, false, false, false, false),
+        };
     }
 }
