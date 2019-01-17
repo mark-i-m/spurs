@@ -24,7 +24,7 @@ it also contains a bunch of utility routines that I have found useful.
 ## Example
 
 ```rust
-use spurs::{cmd, ssh::SshShell};
+use spurs::{cmd, ssh::{SshShell, Execute}};
 
 const FOO: &str = "foo";
 const HOST: &str = "1.2.3.4:22";
@@ -59,4 +59,4 @@ unclear.
 
 Add the crate `spurs` to your `Cargo.toml` dependencies.
 
-Requires stable Rust 1.31 or newer.
+Requires stable Rust 1.32 or newer.
