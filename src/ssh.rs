@@ -158,6 +158,12 @@ impl SshCommand {
             no_pty,
         }
     }
+
+    /// Helper for tests to get the command from this `SshCommand`.
+    #[cfg(test)]
+    pub fn cmd(&self) -> &str {
+        &self.cmd
+    }
 }
 
 impl SshShell {

@@ -337,10 +337,21 @@ mod test {
         fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
             // TODO
 
+            let short_cmd = {
+                if cmd.cmd().contains("blkid") {
+                    "blkid"
+                } else {
+                    "unknown"
+                }
+            };
+
             self.commands.lock().unwrap().push(cmd);
 
             Ok(SshOutput {
-                stdout: String::new(),
+                stdout: match short_cmd {
+                    "blkid" => "UUID=1fb958bf-de7e-428a-a0b7-a598f22e96fa\n".into(),
+                    _ => String::new(),
+                },
                 stderr: String::new(),
             })
         }
@@ -361,7 +372,21 @@ mod test {
         };
         ($shell:expr, $($cmd:expr),+ $(,)?) => {
             let expected: &[SshCommand] = &[$($cmd),+];
-            assert_eq!(**$shell.commands.lock().unwrap(), *expected);
+            let locked = $shell.commands.lock().unwrap();
+
+            let mut fail = false;
+            let mut message = "Actual commands did not match expected commands: \n".to_owned();
+
+            for (expected, actual) in expected.iter().zip(locked.iter()) {
+                if expected != actual {
+                    fail = true;
+                    message.push_str(&format!("\nExpected: {:#?}\nActual:  {:#?}\n=====\n", expected, actual));
+                }
+            }
+
+            if fail {
+                panic!(message);
+            }
         };
     }
 
@@ -491,6 +516,29 @@ mod test {
             shell,
             SshCommand::make_cmd("sudo reboot", None, false, false, false, false),
             SshCommand::make_cmd("whoami", None, false, false, false, false),
+        };
+    }
+
+    #[test]
+    fn test_format_partition_as_ext4() {
+        let mut shell = TestSshShell::new();
+        super::format_partition_as_ext4(&mut shell, false, "/dev/foobar", "/mnt/point/", "me")
+            .unwrap();
+        expect_cmd_sequence! {
+            shell,
+            SshCommand::make_cmd("lsblk", None, false, false, false, false),
+            SshCommand::make_cmd("sudo mkfs.ext4 /dev/foobar", None, false, false, false, false),
+            SshCommand::make_cmd("mkdir -p /tmp/tmp_mnt", None, false, false, false, false),
+            SshCommand::make_cmd("sudo mount -t ext4 /dev/foobar /tmp/tmp_mnt", None, false, false, false, false),
+            SshCommand::make_cmd("sudo chown me /tmp/tmp_mnt", None, false, false, false, false),
+            SshCommand::make_cmd("rsync -a /mnt/point// /tmp/tmp_mnt/", None, false, false, false, false),
+            SshCommand::make_cmd("sync", None, false, false, false, false),
+            SshCommand::make_cmd("sudo umount /tmp/tmp_mnt", None, false, false, false, false),
+            SshCommand::make_cmd("sudo mount -t ext4 /dev/foobar /mnt/point/", None, false, false, false, false),
+            SshCommand::make_cmd("sudo chown me /mnt/point/", None, false, false, false, false),
+            SshCommand::make_cmd("sudo blkid -o export /dev/foobar | grep '^UUID='", None, /* use_bash = */ true, false, false, false),
+            SshCommand::make_cmd(r#"echo "UUID=1fb958bf-de7e-428a-a0b7-a598f22e96fa    /mnt/point/    ext4    defaults    0    1" | sudo tee -a /etc/fstab"#, None, false, false, false, false),
+            SshCommand::make_cmd("lsblk", None, false, false, false, false),
         };
     }
 }
