@@ -2,6 +2,7 @@
 
 [![Latest version](https://img.shields.io/crates/v/spurs.svg)](https://crates.io/crates/spurs)
 [![Documentation](https://docs.rs/spurs/badge.svg)](https://docs.rs/spurs)
+[![Build](https://api.travis-ci.org/mark-i-m/spurs.svg)](https://travis-ci.org/mark-i-m/spurs/)
 
 Utilities for setting up and running experiments remotely.
 
