@@ -1,6 +1,6 @@
 [package]
 name = "spurs"
-version = "0.3.0"
+version = "0.3.0" # remember to update html_root_url
 authors = ["mark-i-m"]
 edition = "2018"
 license = "MIT or Apache-2.0"
