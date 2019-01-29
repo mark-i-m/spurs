@@ -247,8 +247,8 @@ impl SshShell {
     /// Toggles _dry run mode_. In dry run mode, commands are not executed remotely; we only print
     /// what commands we would execute. Note that we do connect remotely, though. This is off by
     /// default: we default to actually running the commands.
-    pub fn toggle_dry_run(&mut self) {
-        self.dry_run_mode = !self.dry_run_mode;
+    pub fn set_dry_run(&mut self, on: bool) {
+        self.dry_run_mode = on;
         info!(
             "Toggled dry run mode: {}",
             if self.dry_run_mode { "on" } else { "off" }
@@ -470,11 +470,30 @@ impl Execute for SshShell {
     }
 }
 
+impl std::fmt::Debug for SshShell {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "SshShell {{ {}@{:?} dry_run={} key={:?} }}",
+            self.username, self.remote, self.dry_run_mode, self.key
+        )
+    }
+}
+
 impl SshSpawnHandle {
     /// Block until the remote command completes.
     pub fn join(self) -> Result<SshOutput, failure::Error> {
         debug!("Blocking on spawned commmand.");
         self.thread_handle.join().unwrap()
+    }
+}
+
+impl std::fmt::Debug for SshSpawnHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "SshSpawnHandle {{ running }}"
+        )
     }
 }
 
