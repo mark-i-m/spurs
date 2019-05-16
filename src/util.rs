@@ -281,7 +281,9 @@ pub fn get_mounted_devs(
             .split(char::is_whitespace)
             .filter(|s| !s.is_empty())
             .collect();
-        if split.len() > 1 {
+
+        // Need to make sure there are no duplicates (which can happen with LVM)
+        if split.len() > 1 && mounted.iter().all(|(d, _)| d != split[0]) {
             mounted.push((split[0].to_owned(), split[1].to_owned()));
         }
     }
