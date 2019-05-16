@@ -322,9 +322,7 @@ impl SshShell {
         // print stdout
         let mut buf = [0; 256];
         while chan.read(&mut buf)? > 0 {
-            let out = std::str::from_utf8(&buf)
-                .unwrap()
-                .trim_right_matches('\u{0}');
+            let out = std::str::from_utf8(&buf).unwrap().trim_end_matches('\u{0}');
             print!("{}", out);
             stdout.push_str(out);
 
@@ -347,9 +345,7 @@ impl SshShell {
 
         // print stderr
         while chan.stderr().read(&mut buf)? > 0 {
-            let err = std::str::from_utf8(&buf)
-                .unwrap()
-                .trim_right_matches('\u{0}');
+            let err = std::str::from_utf8(&buf).unwrap().trim_end_matches('\u{0}');
             print!("{}", err);
             stderr.push_str(err);
 
@@ -490,10 +486,7 @@ impl SshSpawnHandle {
 
 impl std::fmt::Debug for SshSpawnHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "SshSpawnHandle {{ running }}"
-        )
+        write!(f, "SshSpawnHandle {{ running }}")
     }
 }
 
