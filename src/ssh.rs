@@ -322,7 +322,8 @@ impl SshShell {
         // print stdout
         let mut buf = [0; 256];
         while chan.read(&mut buf)? > 0 {
-            let out = std::str::from_utf8(&buf).unwrap().trim_end_matches('\u{0}');
+            let out = String::from_utf8_lossy(&buf);
+            let out = out.trim_end_matches('\u{0}');
             print!("{}", out);
             stdout.push_str(out);
 
@@ -345,7 +346,8 @@ impl SshShell {
 
         // print stderr
         while chan.stderr().read(&mut buf)? > 0 {
-            let err = std::str::from_utf8(&buf).unwrap().trim_end_matches('\u{0}');
+            let err = String::from_utf8_lossy(&buf);
+            let err = err.trim_end_matches('\u{0}');
             print!("{}", err);
             stderr.push_str(err);
 
