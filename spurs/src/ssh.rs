@@ -53,6 +53,7 @@ pub struct SshShell {
     tcp: TcpStream,
     username: String,
     key: PathBuf,
+    remote_name: String, // used for printing
     remote: SocketAddr,
     sess: Arc<Mutex<Session>>,
     dry_run_mode: bool,
@@ -210,6 +211,7 @@ impl SshShell {
         let tcp = TcpStream::connect(&remote)?;
         tcp.set_read_timeout(Some(DEFAULT_TIMEOUT))?;
         tcp.set_write_timeout(Some(DEFAULT_TIMEOUT))?;
+        let remote_name = format!("{:?}", remote);
         let remote = remote.to_socket_addrs().unwrap().next().unwrap();
 
         debug!("Create new SSH session...");
@@ -229,7 +231,7 @@ impl SshShell {
 
         println!(
             "{}",
-            console::style(format!("{}@{}", username, remote))
+            console::style(format!("{}@{} ({})", username, remote_name, remote))
                 .green()
                 .bold()
         );
@@ -238,6 +240,7 @@ impl SshShell {
             tcp,
             username: username.to_owned(),
             key: key.as_ref().to_owned(),
+            remote_name,
             remote,
             sess: Arc::new(Mutex::new(sess)),
             dry_run_mode: false,
@@ -256,6 +259,7 @@ impl SshShell {
     }
 
     fn run_with_chan_and_opts(
+        host_and_username: String, // for printing
         mut chan: ssh2::Channel,
         cmd_opts: SshCommand,
     ) -> Result<SshOutput, failure::Error> {
@@ -292,7 +296,11 @@ impl SshShell {
         debug!("After cwd: {:?}", cmd);
 
         // print message
-        println!("{}", console::style(msg).yellow().bold());
+        println!(
+            "{} {}",
+            console::style(host_and_username).blue(),
+            console::style(msg).yellow().bold()
+        );
 
         let mut stdout = String::new();
         let mut stderr = String::new();
@@ -384,12 +392,13 @@ impl Execute for SshShell {
         debug!("Attempt to crate channel...");
         let chan = sess.channel_session()?;
         debug!("Channel created.");
+        let host_and_username = format!("{}@{}", self.username, self.remote_name);
         let cmd = if self.dry_run_mode {
             cmd.dry_run(true)
         } else {
             cmd
         };
-        Self::run_with_chan_and_opts(chan, cmd)
+        Self::run_with_chan_and_opts(host_and_username, chan, cmd)
     }
 
     /// Run a command on the remote machine, without blocking until the command completes. A handle
@@ -405,11 +414,13 @@ impl Execute for SshShell {
             cmd
         };
 
+        let host_and_username = format!("{}@{}", self.username, self.remote_name);
+
         let thread_handle = std::thread::spawn(move || {
             let sess = sess.lock().unwrap();
             debug!("Attempt to crate channel for spawned command...");
             let chan = sess.channel_session()?;
-            Self::run_with_chan_and_opts(chan, cmd)
+            Self::run_with_chan_and_opts(host_and_username, chan, cmd)
         });
 
         debug!("spawned thread for command.");
