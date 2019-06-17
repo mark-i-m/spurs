@@ -14,13 +14,13 @@ Utilities for setting up and running experiments remotely.
 categories = ["science"]
 
 [dependencies]
-spurs = "0.4.2"
+spurs = "0.5.0"
 failure = "0.1.4"
 log = "0.4.6"
 env_logger = "0.6.0"
 
 [dev-dependencies]
-spurs = { version = "0.4.2", features = ["test"] }
+spurs = { version = "0.5.0", features = ["test"] }
 
 [patch.crates-io]
 spurs = { path = "/nobackup/spurs/spurs" } #TODO

@@ -63,7 +63,6 @@ pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), failure::Er
 
     if !dry_run {
         // If we try to reconnect immediately, the machine will not have gone down yet.
-        #[cfg(not(test))]
         std::thread::sleep(std::time::Duration::from_secs(10));
 
         // Attempt to reconnect.
