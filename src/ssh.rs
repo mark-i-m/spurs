@@ -383,6 +383,7 @@ impl Execute for SshShell {
         let sess = self.sess.lock().unwrap();
         debug!("Attempt to crate channel...");
         let chan = sess.channel_session()?;
+        debug!("Channel created.");
         let cmd = if self.dry_run_mode {
             cmd.dry_run(true)
         } else {
@@ -455,7 +456,10 @@ impl Execute for SshShell {
         }
         trace!("authenticated!");
 
-        self.sess = Arc::new(Mutex::new(sess));
+        // It should be safe to `Arc::get_mut` here. `reconnect` takes `self` by mutable reference,
+        // so no other thread should have access (even immutably) to `self.sess`.
+        let self_sess = Arc::get_mut(&mut self.sess).unwrap().get_mut().unwrap();
+        let _old_sess = std::mem::replace(self_sess, sess);
 
         println!(
             "{}",
