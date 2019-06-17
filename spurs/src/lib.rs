@@ -5,7 +5,4 @@
 
 #[macro_use]
 pub mod ssh;
-
-pub mod centos;
-pub mod ubuntu;
 pub mod util;

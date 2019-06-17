@@ -1,7 +1,26 @@
 [package]
 name = "spurs-util"
-version = "0.1.0"
-authors = ["Mark Mansi <markm@cs.wisc.edu>"]
+version = "0.1.0" # remember to update html_root_url
+authors = ["mark-i-m"]
 edition = "2018"
+license = "MIT/Apache-2.0"
+keywords = ["SSH", "remote", "experimentation", "spur-py"]
+readme = "../README.md"
+repository = "https://github.com/mark-i-m/spurs"
+documentation = "https://docs.rs/spurs-util/"
+description = """
+Utilities for setting up and running experiments remotely.
+"""
+categories = ["science"]
 
 [dependencies]
+spurs = "0.4.2"
+failure = "0.1.4"
+log = "0.4.6"
+env_logger = "0.6.0"
+
+[dev-dependencies]
+spurs = { version = "0.4.2", features = ["test"] }
+
+[patch.crates-io]
+spurs = { path = "/nobackup/spurs/spurs" } #TODO

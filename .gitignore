@@ -1,4 +1,5 @@
-/target
+spurs/target
+spurs-util/target
 **/*.rs.bk
 Cargo.lock
 

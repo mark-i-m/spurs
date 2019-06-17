@@ -1,6 +1,6 @@
 //! Functionality specific to Ubuntu.
 
-use crate::ssh::SshCommand;
+use spurs::{cmd, ssh::SshCommand};
 
 /// Install the given .deb packages via `dpkg`. Requires `sudo` priveleges.
 pub fn dpkg_install(pkg: &str) -> SshCommand {
@@ -14,7 +14,7 @@ pub fn apt_install(pkgs: &[&str]) -> SshCommand {
 
 #[cfg(test)]
 mod test {
-    use crate::ssh::SshCommand;
+    use spurs::ssh::SshCommand;
 
     #[test]
     fn test_dpkg_install() {

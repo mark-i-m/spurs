@@ -1,6 +1,6 @@
 //! Functionality specific to Centos, RHEL, Amazon Linux, and other related distros.
 
-use crate::ssh::SshCommand;
+use spurs::{cmd, ssh::SshCommand};
 
 /// Install the given .rpm packages via `rpm`. Requires `sudo` priveleges.
 pub fn rpm_install(pkg: &str) -> SshCommand {
@@ -14,7 +14,7 @@ pub fn yum_install(pkgs: &[&str]) -> SshCommand {
 
 #[cfg(test)]
 mod test {
-    use crate::ssh::SshCommand;
+    use spurs::ssh::SshCommand;
 
     #[test]
     fn test_rpm_install() {

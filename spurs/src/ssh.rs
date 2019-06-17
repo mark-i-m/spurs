@@ -140,7 +140,7 @@ impl SshCommand {
     }
 
     /// Helper for tests that makes a `SshCommand` with the given values.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     pub fn make_cmd(
         cmd: &str,
         cwd: Option<PathBuf>,
@@ -160,7 +160,7 @@ impl SshCommand {
     }
 
     /// Helper for tests to get the command from this `SshCommand`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     pub fn cmd(&self) -> &str {
         &self.cmd
     }
