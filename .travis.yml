@@ -1,2 +1,6 @@
 language: rust
 cache: cargo
+
+script:
+    - cd spurs ; cargo test
+    - cd spurs-util ; cargo test

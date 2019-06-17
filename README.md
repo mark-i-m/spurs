@@ -1,7 +1,8 @@
 # spurs
 
 [![Latest version](https://img.shields.io/crates/v/spurs.svg)](https://crates.io/crates/spurs)
-[![Documentation](https://docs.rs/spurs/badge.svg)](https://docs.rs/spurs)
+[![Latest version](https://img.shields.io/crates/v/spurs-util.svg)](https://crates.io/crates/spurs-util)
+[![Documentation](https://docs.rs/spurs-util/badge.svg)](https://docs.rs/spurs-util)
 [![Build](https://api.travis-ci.org/mark-i-m/spurs.svg)](https://travis-ci.org/mark-i-m/spurs/)
 
 Utilities for setting up and running experiments remotely.
@@ -53,9 +54,9 @@ It's also possible to
 - capture the stdout and stderr
 - allow a command to fail
 
-For more information please see [the docs](https://docs.rs/spurs). Feel free to
-open an issue on [the repo](https://github.com/mark-i-m/spurs) if anything is
-unclear.
+For more information please see [the `spurs` docs](https://docs.rs/spurs) or
+[the `spurs-util` docs](https://docs.rs/spurs-util). Feel free to open an issue
+on [the repo](https://github.com/mark-i-m/spurs) if anything is unclear.
 
 ## Usage
 
