@@ -247,8 +247,9 @@ mod test {
     use spurs::ssh::{Execute, SshCommand, SshOutput};
 
     /// An `Execute` implementation for use in tests.
+    #[derive(Clone, Debug)]
     pub struct TestSshShell {
-        pub commands: std::sync::Mutex<Vec<SshCommand>>,
+        pub commands: std::sync::Arc<std::sync::Mutex<Vec<SshCommand>>>,
     }
 
     impl TestSshShell {
@@ -261,7 +262,7 @@ mod test {
             });
 
             Self {
-                commands: std::sync::Mutex::new(vec![]),
+                commands: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             }
         }
     }
@@ -339,9 +340,9 @@ mod test {
             })
         }
 
-        fn spawn(&self, cmd: SshCommand) -> Result<Self::SshSpawnHandle, failure::Error> {
+        fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), failure::Error> {
             info!("Test spawn({:#?})", cmd);
-            Ok(TestSshSpawnHandle { command: cmd })
+            Ok((self.clone(), TestSshSpawnHandle { command: cmd }))
         }
 
         fn reconnect(&mut self) -> Result<(), failure::Error> {

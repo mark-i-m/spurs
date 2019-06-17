@@ -65,7 +65,7 @@ pub struct SshSpawnHandle {
 }
 
 /// A trait representing types that can run an `SshCommand`.
-pub trait Execute {
+pub trait Execute: Sized {
     type SshSpawnHandle;
 
     /// Run a command on the remote machine, blocking until the command completes.
@@ -74,10 +74,11 @@ pub trait Execute {
     fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error>;
 
     /// Run a command on the remote machine, without blocking until the command completes. A handle
-    /// is returned, which one can `join` on to wait for process completion.
+    /// is returned, which one can `join` on to wait for process completion. This command will open
+    /// a new SSH session with the same credentials as `self`.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn spawn(&self, cmd: SshCommand) -> Result<Self::SshSpawnHandle, failure::Error>;
+    fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), failure::Error>;
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
     fn reconnect(&mut self) -> Result<(), failure::Error>;
@@ -247,6 +248,59 @@ impl SshShell {
         })
     }
 
+    /// Returns a new shell connected via the same credentials as the given existing host.
+    ///
+    /// ```rust,ignore
+    /// SshShell::from_existing(&existing_ssh_shell)?;
+    /// ```
+    pub fn from_existing(shell: &SshShell) -> Result<Self, failure::Error> {
+        info!("New SSH shell: {}@{:?}", shell.username, shell.remote);
+        debug!("Using key: {:?}", shell.key);
+
+        debug!("Create new TCP stream...");
+
+        // Create a TCP connection
+        let tcp = TcpStream::connect(&shell.remote)?;
+        tcp.set_read_timeout(Some(DEFAULT_TIMEOUT))?;
+        tcp.set_write_timeout(Some(DEFAULT_TIMEOUT))?;
+        let remote = shell.remote.clone();
+
+        debug!("Create new SSH session...");
+
+        // Start an SSH session
+        let mut sess = Session::new().unwrap();
+        sess.handshake(&tcp)?;
+        trace!("SSH session handshook.");
+        sess.userauth_pubkey_file(&shell.username, None, shell.key.as_ref(), None)?;
+        if !sess.authenticated() {
+            return Err(SshError::AuthFailed {
+                key: shell.key.clone(),
+            }
+            .into());
+        }
+        trace!("SSH session authenticated.");
+
+        println!(
+            "{}",
+            console::style(format!(
+                "{}@{} ({})",
+                shell.username, shell.remote_name, remote
+            ))
+            .green()
+            .bold()
+        );
+
+        Ok(SshShell {
+            tcp,
+            username: shell.username.clone(),
+            key: shell.key.clone(),
+            remote_name: shell.remote_name.clone(),
+            remote,
+            sess: Arc::new(Mutex::new(sess)),
+            dry_run_mode: false,
+        })
+    }
+
     /// Toggles _dry run mode_. In dry run mode, commands are not executed remotely; we only print
     /// what commands we would execute. Note that we do connect remotely, though. This is off by
     /// default: we default to actually running the commands.
@@ -402,12 +456,15 @@ impl Execute for SshShell {
     }
 
     /// Run a command on the remote machine, without blocking until the command completes. A handle
-    /// is returned, which one can `join` on to wait for process completion.
+    /// is returned, which one can `join` on to wait for process completion. This command will open
+    /// a new SSH session with the same credentials as `self`.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, failure::Error> {
+    fn spawn(&self, cmd: SshCommand) -> Result<(SshShell, SshSpawnHandle), failure::Error> {
         debug!("spawn(cmd)");
-        let sess = self.sess.clone();
+        let shell = Self::from_existing(self)?;
+        let sess = shell.sess.clone();
+
         let cmd = if self.dry_run_mode {
             cmd.dry_run(true)
         } else {
@@ -425,7 +482,7 @@ impl Execute for SshShell {
 
         debug!("spawned thread for command.");
 
-        Ok(SshSpawnHandle { thread_handle })
+        Ok((shell, SshSpawnHandle { thread_handle }))
     }
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).

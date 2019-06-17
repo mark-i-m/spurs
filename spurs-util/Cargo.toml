@@ -23,4 +23,4 @@ env_logger = "0.6.0"
 spurs = { version = "0.5.0", features = ["test"] }
 
 [patch.crates-io]
-spurs = { path = "/nobackup/spurs/spurs" } #TODO
+spurs = { version = "0.5.0", path = "/nobackup/spurs/spurs" } #TODO
