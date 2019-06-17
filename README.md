@@ -2,6 +2,7 @@
 
 [![Latest version](https://img.shields.io/crates/v/spurs.svg)](https://crates.io/crates/spurs)
 [![Latest version](https://img.shields.io/crates/v/spurs-util.svg)](https://crates.io/crates/spurs-util)
+[![Documentation](https://docs.rs/spurs/badge.svg)](https://docs.rs/spurs)
 [![Documentation](https://docs.rs/spurs-util/badge.svg)](https://docs.rs/spurs-util)
 [![Build](https://api.travis-ci.org/mark-i-m/spurs.svg)](https://travis-ci.org/mark-i-m/spurs/)
 
