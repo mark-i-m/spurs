@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.0
+- Move to custom error type, rather than failure.
+
 ## 0.5.0
 
 - Reimplemented spawn to allow true parallelism. It now opens a new SSH
