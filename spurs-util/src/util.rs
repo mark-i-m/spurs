@@ -13,6 +13,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use spurs::{
     cmd,
+    errors::SshError,
     ssh::{Execute, SshCommand},
 };
 
@@ -92,7 +93,7 @@ pub fn format_partition_as_ext4<P: AsRef<std::path::Path>>(
     partition: &str,
     mount: P,
     owner: &str,
-) -> Result<(), failure::Error> {
+) -> Result<(), SshError> {
     shell.run(cmd!("lsblk").dry_run(dry_run))?;
 
     // Make a filesystem on the first partition
@@ -150,7 +151,7 @@ pub fn get_partitions(
     shell: &impl Execute,
     device: &str,
     dry_run: bool,
-) -> Result<HashSet<String>, failure::Error> {
+) -> Result<HashSet<String>, SshError> {
     Ok(shell
         .run(cmd!("lsblk -o KNAME {}", device).dry_run(dry_run))?
         .stdout
@@ -164,7 +165,7 @@ pub fn get_partitions(
 pub fn get_unpartitioned_devs(
     shell: &impl Execute,
     dry_run: bool,
-) -> Result<HashSet<String>, failure::Error> {
+) -> Result<HashSet<String>, SshError> {
     // List all devs
     let lsblk = shell.run(cmd!("lsblk -o KNAME").dry_run(dry_run))?.stdout;
     let mut devices: BTreeSet<&str> = lsblk.lines().map(|line| line.trim()).skip(1).collect();
@@ -198,7 +199,7 @@ pub fn get_unpartitioned_devs(
 pub fn get_mounted_devs(
     shell: &impl Execute,
     dry_run: bool,
-) -> Result<Vec<(String, String)>, failure::Error> {
+) -> Result<Vec<(String, String)>, SshError> {
     let devices = shell
         .run(cmd!("lsblk -o KNAME,MOUNTPOINT").dry_run(dry_run))?
         .stdout;
@@ -223,7 +224,7 @@ pub fn get_dev_sizes(
     shell: &impl Execute,
     devs: Vec<&str>,
     dry_run: bool,
-) -> Result<Vec<String>, failure::Error> {
+) -> Result<Vec<String>, SshError> {
     let per_dev = devs
         .iter()
         .map(|dev| shell.run(cmd!("lsblk -o SIZE /dev/{}", dev).dry_run(dry_run)));
@@ -244,6 +245,7 @@ pub fn get_dev_sizes(
 mod test {
     use log::info;
 
+    use spurs::errors::SshError;
     use spurs::ssh::{Execute, SshCommand, SshOutput};
 
     /// An `Execute` implementation for use in tests.
@@ -275,7 +277,7 @@ mod test {
     impl Execute for TestSshShell {
         type SshSpawnHandle = TestSshSpawnHandle;
 
-        fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
+        fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError> {
             info!("Test run({:#?})", cmd);
 
             enum FakeCommand {
@@ -340,12 +342,12 @@ mod test {
             })
         }
 
-        fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), failure::Error> {
+        fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), SshError> {
             info!("Test spawn({:#?})", cmd);
             Ok((self.clone(), TestSshSpawnHandle { command: cmd }))
         }
 
-        fn reconnect(&mut self) -> Result<(), failure::Error> {
+        fn reconnect(&mut self) -> Result<(), SshError> {
             info!("Test reconnect");
 
             Ok(())
