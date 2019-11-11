@@ -20,8 +20,6 @@ test = []
 [dependencies]
 ssh2 = "0.3.3"
 dirs = "1.0.4"
-failure = "0.1.4"
-failure_derive = "0.1.4"
 console = "0.7.2"
 log = "0.4.6"
 env_logger = "0.6.0"

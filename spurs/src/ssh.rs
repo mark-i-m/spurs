@@ -9,27 +9,14 @@ use std::{
     time::Duration,
 };
 
-use failure::Fail;
-
 use log::{debug, info, trace};
 
 use ssh2::Session;
 
+use crate::errors::SshError;
+
 /// The default timeout for the TCP stream of a SSH connection.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// An error type representing things that could possibly go wrong when using an SshShell.
-#[derive(Debug, Fail)]
-pub enum SshError {
-    #[fail(display = "no such key: {}", file)]
-    KeyNotFound { file: String },
-
-    #[fail(display = "authentication failed with private key: {:?}", key)]
-    AuthFailed { key: PathBuf },
-
-    #[fail(display = "non-zero exit ({}) for command: {}", exit, cmd)]
-    NonZeroExit { cmd: String, exit: i32 },
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SshCommand {
@@ -61,7 +48,7 @@ pub struct SshShell {
 
 /// A handle for a spawned remote command.
 pub struct SshSpawnHandle {
-    thread_handle: JoinHandle<Result<SshOutput, failure::Error>>,
+    thread_handle: JoinHandle<Result<SshOutput, SshError>>,
 }
 
 /// A trait representing types that can run an `SshCommand`.
@@ -71,17 +58,17 @@ pub trait Execute: Sized {
     /// Run a command on the remote machine, blocking until the command completes.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error>;
+    fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError>;
 
     /// Run a command on the remote machine, without blocking until the command completes. A handle
     /// is returned, which one can `join` on to wait for process completion. This command will open
     /// a new SSH session with the same credentials as `self`.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), failure::Error>;
+    fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), SshError>;
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
-    fn reconnect(&mut self) -> Result<(), failure::Error>;
+    fn reconnect(&mut self) -> Result<(), SshError>;
 }
 
 impl SshCommand {
@@ -178,7 +165,7 @@ impl SshShell {
     pub fn with_default_key<A: ToSocketAddrs + std::fmt::Debug>(
         username: &str,
         remote: A,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, SshError> {
         const DEFAULT_KEY_SUFFIX: &str = ".ssh/id_rsa";
         let home = if let Some(home) = dirs::home_dir() {
             home
@@ -202,7 +189,7 @@ impl SshShell {
         username: &str,
         remote: A,
         key: P,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, SshError> {
         info!("New SSH shell: {}@{:?}", username, remote);
         debug!("Using key: {:?}", key.as_ref());
 
@@ -253,7 +240,7 @@ impl SshShell {
     /// ```rust,ignore
     /// SshShell::from_existing(&existing_ssh_shell)?;
     /// ```
-    pub fn from_existing(shell: &SshShell) -> Result<Self, failure::Error> {
+    pub fn from_existing(shell: &SshShell) -> Result<Self, SshError> {
         info!("New SSH shell: {}@{:?}", shell.username, shell.remote);
         debug!("Using key: {:?}", shell.key);
 
@@ -316,7 +303,7 @@ impl SshShell {
         host_and_username: String, // for printing
         mut chan: ssh2::Channel,
         cmd_opts: SshCommand,
-    ) -> Result<SshOutput, failure::Error> {
+    ) -> Result<SshOutput, SshError> {
         debug!("run_with_chan_and_opts({:?})", cmd_opts);
 
         let SshCommand {
@@ -440,7 +427,7 @@ impl Execute for SshShell {
     /// Run a command on the remote machine, blocking until the command completes.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
+    fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError> {
         debug!("run(cmd)");
         let sess = self.sess.lock().unwrap();
         debug!("Attempt to crate channel...");
@@ -460,7 +447,7 @@ impl Execute for SshShell {
     /// a new SSH session with the same credentials as `self`.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn spawn(&self, cmd: SshCommand) -> Result<(SshShell, SshSpawnHandle), failure::Error> {
+    fn spawn(&self, cmd: SshCommand) -> Result<(SshShell, SshSpawnHandle), SshError> {
         debug!("spawn(cmd)");
         let shell = Self::from_existing(self)?;
         let sess = shell.sess.clone();
@@ -486,7 +473,7 @@ impl Execute for SshShell {
     }
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
-    fn reconnect(&mut self) -> Result<(), failure::Error> {
+    fn reconnect(&mut self) -> Result<(), SshError> {
         info!("Reconnect attempt.");
 
         trace!("Attempt to create new TCP stream...");
@@ -552,7 +539,7 @@ impl std::fmt::Debug for SshShell {
 
 impl SshSpawnHandle {
     /// Block until the remote command completes.
-    pub fn join(self) -> Result<SshOutput, failure::Error> {
+    pub fn join(self) -> Result<SshOutput, SshError> {
         debug!("Blocking on spawned commmand.");
         self.thread_handle.join().unwrap()
     }

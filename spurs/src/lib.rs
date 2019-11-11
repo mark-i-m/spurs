@@ -5,4 +5,5 @@
 
 #[macro_use]
 pub mod ssh;
+pub mod errors;
 pub mod util;

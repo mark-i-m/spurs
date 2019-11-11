@@ -58,7 +58,7 @@ pub fn get_host_ip<A: ToSocketAddrs>(addr: A) -> (IpAddr, u16) {
 }
 
 /// Reboot and wait for the remote machine to come back up again. Requires `sudo`.
-pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), failure::Error> {
+pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), crate::errors::SshError> {
     let _ = shell.run(cmd!("sudo reboot").dry_run(dry_run));
 
     if !dry_run {
@@ -83,7 +83,10 @@ pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), failure::Er
 mod test {
     use log::info;
 
-    use crate::ssh::{Execute, SshCommand, SshOutput};
+    use crate::{
+        errors::SshError,
+        ssh::{Execute, SshCommand, SshOutput},
+    };
 
     /// An `Execute` implementation for use in tests.
     #[derive(Clone, Debug)]
@@ -114,7 +117,7 @@ mod test {
     impl Execute for TestSshShell {
         type SshSpawnHandle = TestSshSpawnHandle;
 
-        fn run(&self, cmd: SshCommand) -> Result<SshOutput, failure::Error> {
+        fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError> {
             info!("Test run({:#?})", cmd);
 
             enum FakeCommand {
@@ -179,12 +182,12 @@ mod test {
             })
         }
 
-        fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), failure::Error> {
+        fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), SshError> {
             info!("Test spawn({:#?})", cmd);
             Ok((self.clone(), TestSshSpawnHandle { command: cmd }))
         }
 
-        fn reconnect(&mut self) -> Result<(), failure::Error> {
+        fn reconnect(&mut self) -> Result<(), SshError> {
             info!("Test reconnect");
 
             Ok(())
