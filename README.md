@@ -21,8 +21,7 @@ will periodically add more as I find useful ones or people submit PRs.
 This repo contains two crates:
 
 1. `spurs`: A straight-forward, well-typed, idiomatic interface for running
-   commands remotely via SSH, similar to `spur.py`. This also contains a
-   handful of useful utility routines, such as `reboot` or `escape_for_bash`.
+   commands remotely via SSH, similar to `spur.py`.
 
 2. `spurs-util`: Utilities for common Linux admin operations, such as adding a
    user to a group or turning on a swap device or installing a package. This is
