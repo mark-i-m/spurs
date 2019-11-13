@@ -624,10 +624,10 @@ impl std::fmt::Debug for SshSpawnHandle {
 #[macro_export]
 macro_rules! cmd {
     ($fmt:expr) => {
-        $crate::ssh::SshCommand::new(&format!($fmt))
+        $crate::SshCommand::new(&format!($fmt))
     };
     ($fmt:expr, $($arg:tt)*) => {
-        $crate::ssh::SshCommand::new(&format!($fmt, $($arg)*))
+        $crate::SshCommand::new(&format!($fmt, $($arg)*))
     };
 }
 
@@ -670,4 +670,37 @@ fn escape_for_bash(s: &str) -> String {
     new.push('\'');
 
     new
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Tests
+///////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod test {
+    use crate::{cmd, SshCommand};
+
+    #[test]
+    fn test_cmd_macro() {
+        assert_eq!(cmd!("{} {}", "ls", 3), SshCommand::new("ls 3"));
+    }
+
+    mod test_escape_for_bash {
+        use super::super::escape_for_bash;
+
+        #[test]
+        fn simple() {
+            const TEST_STRING: &str = "ls";
+            assert_eq!(escape_for_bash(TEST_STRING), "'ls'");
+        }
+
+        #[test]
+        fn more_complex() {
+            const TEST_STRING: &str = r#"echo '$HELLOWORLD="hello world"' | grep "hello""#;
+            assert_eq!(
+                escape_for_bash(TEST_STRING),
+                r#"'echo '"'"'$HELLOWORLD="hello world"'"'"' | grep "hello"'"#
+            );
+        }
+    }
 }
