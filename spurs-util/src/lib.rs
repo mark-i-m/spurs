@@ -22,11 +22,7 @@ use std::{
     net::{IpAddr, ToSocketAddrs},
 };
 
-use spurs::{
-    cmd,
-    errors::SshError,
-    ssh::{Execute, SshCommand},
-};
+use spurs::{cmd, Execute, SshCommand, SshError};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common useful routines
@@ -327,8 +323,7 @@ pub fn reboot(shell: &mut impl Execute, dry_run: bool) -> Result<(), SshError> {
 mod test {
     use log::info;
 
-    use spurs::errors::SshError;
-    use spurs::ssh::{Execute, SshCommand, SshOutput};
+    use spurs::{Execute, SshCommand, SshError, SshOutput};
 
     /// An `Execute` implementation for use in tests.
     #[derive(Clone, Debug)]

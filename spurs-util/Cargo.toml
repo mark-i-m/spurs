@@ -14,9 +14,9 @@ Utilities for setting up and running experiments remotely.
 categories = ["science"]
 
 [dependencies]
-spurs = "0.7.0"
+spurs = "0.8.1"
 log = "0.4.6"
 env_logger = "0.6.0"
 
 [dev-dependencies]
-spurs = { version = "0.7.0", features = ["test"] }
+spurs = { version = "0.8.1", features = ["test"] }
