@@ -387,7 +387,7 @@ impl SshShell {
 
         debug!("After shell escaping: {:?}", cmd);
 
-        let cmd = if let Some(cwd) = cwd {
+        let cmd = if let Some(cwd) = &cwd {
             format!("cd {} ; {}", cwd.display(), cmd)
         } else {
             cmd
@@ -396,11 +396,22 @@ impl SshShell {
         debug!("After cwd: {:?}", cmd);
 
         // print message
-        println!(
-            "{} {}",
-            console::style(host_and_username).blue(),
-            console::style(msg).yellow().bold()
-        );
+        if let Some(cwd) = cwd {
+            println!(
+                "{:-<80}\n{}\n{}\n{}",
+                "",
+                console::style(host_and_username).blue(),
+                console::style(cwd.display()).blue(),
+                console::style(msg).yellow().bold()
+            );
+        } else {
+            println!(
+                "{:-<80}\n{}\n{}",
+                "",
+                console::style(host_and_username).blue(),
+                console::style(msg).yellow().bold()
+            );
+        }
 
         let mut stdout = String::new();
         let mut stderr = String::new();
