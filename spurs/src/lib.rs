@@ -10,7 +10,7 @@
 //! me to build my cluster setup/experiments scripts/framework in rust, with much greater
 //! productivity and refactorability.
 
-#![doc(html_root_url = "https://docs.rs/spurs/0.8.1")]
+#![doc(html_root_url = "https://docs.rs/spurs/0.9.0")]
 
 use std::{
     io::Read,
@@ -77,24 +77,20 @@ pub struct SshShell {
 
 /// A handle for a spawned remote command.
 pub struct SshSpawnHandle {
-    thread_handle: JoinHandle<Result<SshOutput, SshError>>,
+    thread_handle: JoinHandle<(SshShell, Result<SshOutput, SshError>)>,
 }
 
 /// A trait representing types that can run an `SshCommand`.
 pub trait Execute: Sized {
-    type SshSpawnHandle;
-
     /// Run a command on the remote machine, blocking until the command completes.
     ///
     /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError>;
 
-    /// Run a command on the remote machine, without blocking until the command completes. A handle
-    /// is returned, which one can `join` on to wait for process completion. This command will open
-    /// a new SSH session with the same credentials as `self`.
-    ///
-    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), SshError>;
+    /// Attempts to create a new `Self` with similar credentials to `self` but using an independent
+    /// connection. This is useful for running multiple commands in parallel without needing to
+    /// pass around the parameters everywhere.
+    fn duplicate(&self) -> Result<Self, SshError>;
 
     /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
     fn reconnect(&mut self) -> Result<(), SshError>;
@@ -358,6 +354,25 @@ impl SshShell {
         );
     }
 
+    pub fn spawn(&self, cmd: SshCommand) -> Result<SshSpawnHandle, SshError> {
+        debug!("spawn({:?})", cmd);
+        let shell = Self::from_existing(self)?;
+        let cmd = if self.dry_run_mode {
+            cmd.dry_run(true)
+        } else {
+            cmd
+        };
+
+        let thread_handle = std::thread::spawn(move || {
+            let result = shell.run(cmd);
+            (shell, result)
+        });
+
+        debug!("spawned thread for command.");
+
+        Ok(SshSpawnHandle { thread_handle })
+    }
+
     fn run_with_chan_and_opts(
         host_and_username: String, // for printing
         mut chan: ssh2::Channel,
@@ -492,11 +507,6 @@ impl SshShell {
 }
 
 impl Execute for SshShell {
-    type SshSpawnHandle = SshSpawnHandle;
-
-    /// Run a command on the remote machine, blocking until the command completes.
-    ///
-    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
     fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError> {
         debug!("run(cmd)");
         let sess = self.sess.lock().unwrap();
@@ -512,37 +522,10 @@ impl Execute for SshShell {
         Self::run_with_chan_and_opts(host_and_username, chan, cmd)
     }
 
-    /// Run a command on the remote machine, without blocking until the command completes. A handle
-    /// is returned, which one can `join` on to wait for process completion. This command will open
-    /// a new SSH session with the same credentials as `self`.
-    ///
-    /// Note that command using `sudo` will hang indefinitely if `sudo` asks for a password.
-    fn spawn(&self, cmd: SshCommand) -> Result<(SshShell, SshSpawnHandle), SshError> {
-        debug!("spawn(cmd)");
-        let shell = Self::from_existing(self)?;
-        let sess = shell.sess.clone();
-
-        let cmd = if self.dry_run_mode {
-            cmd.dry_run(true)
-        } else {
-            cmd
-        };
-
-        let host_and_username = format!("{}@{}", self.username, self.remote_name);
-
-        let thread_handle = std::thread::spawn(move || {
-            let sess = sess.lock().unwrap();
-            debug!("Attempt to crate channel for spawned command...");
-            let chan = sess.channel_session()?;
-            Self::run_with_chan_and_opts(host_and_username, chan, cmd)
-        });
-
-        debug!("spawned thread for command.");
-
-        Ok((shell, SshSpawnHandle { thread_handle }))
+    fn duplicate(&self) -> Result<Self, SshError> {
+        Self::from_existing(self)
     }
 
-    /// Attempt to reconnect to the remote until it reconnects (possibly indefinitely).
     fn reconnect(&mut self) -> Result<(), SshError> {
         info!("Reconnect attempt.");
 
@@ -609,9 +592,11 @@ impl std::fmt::Debug for SshShell {
 
 impl SshSpawnHandle {
     /// Block until the remote command completes.
-    pub fn join(self) -> Result<SshOutput, SshError> {
+    pub fn join(self) -> (SshShell, Result<SshOutput, SshError>) {
         debug!("Blocking on spawned commmand.");
-        self.thread_handle.join().unwrap()
+        let ret = self.thread_handle.join().unwrap();
+        debug!("Spawned commmand complete.");
+        ret
     }
 }
 
