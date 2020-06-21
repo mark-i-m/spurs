@@ -12,7 +12,7 @@
 //!
 //! The `centos` and `ubuntu` submodules contain routines specifically useful for those platforms.
 
-#![doc(html_root_url = "https://docs.rs/spurs-util/0.2.2")]
+#![doc(html_root_url = "https://docs.rs/spurs-util/0.3.0")]
 
 pub mod centos;
 pub mod ubuntu;
@@ -346,14 +346,7 @@ mod test {
         }
     }
 
-    /// A spawn handle for use in tests.
-    pub struct TestSshSpawnHandle {
-        pub command: SshCommand,
-    }
-
     impl Execute for TestSshShell {
-        type SshSpawnHandle = TestSshSpawnHandle;
-
         fn run(&self, cmd: SshCommand) -> Result<SshOutput, SshError> {
             info!("Test run({:#?})", cmd);
 
@@ -419,9 +412,8 @@ mod test {
             })
         }
 
-        fn spawn(&self, cmd: SshCommand) -> Result<(Self, Self::SshSpawnHandle), SshError> {
-            info!("Test spawn({:#?})", cmd);
-            Ok((self.clone(), TestSshSpawnHandle { command: cmd }))
+        fn duplicate(&self) -> Result<Self, SshError> {
+            Ok(self.clone())
         }
 
         fn reconnect(&mut self) -> Result<(), SshError> {
