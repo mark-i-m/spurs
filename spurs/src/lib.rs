@@ -234,6 +234,48 @@ impl SshShell {
         SshShell::with_key(username, remote, home.join(DEFAULT_KEY_SUFFIX))
     }
 
+    /// Returns a shell connected via the first private key found at `$HOME/.ssh/` to the given
+    /// SSH server as the given user.
+    ///
+    /// ```rust,ignore
+    /// SshShell::with_any_key("markm", "myhost:22")?;
+    /// ```
+    pub fn with_any_key<A: Copy + ToSocketAddrs + std::fmt::Debug>(
+        username: &str,
+        remote: A,
+    ) -> Result<Self, SshError> {
+        const DEFAULT_KEY_DIR: &str = ".ssh/";
+        let home = if let Some(home) = dirs::home_dir() {
+            home
+        } else {
+            return Err(SshError::KeyNotFound {
+                file: DEFAULT_KEY_DIR.into(),
+            });
+        };
+        let key_dir = home.join(DEFAULT_KEY_DIR);
+
+        for entry in std::fs::read_dir(&key_dir)? {
+            let entry = entry?;
+            let name = entry.file_name().into_string().unwrap();
+
+            // To find the private keys, find the public keys then chop off ".pub"
+            if !name.ends_with(".pub") {
+                continue;
+            }
+
+            let (priv_key, _) = name.split_at(name.len() - 4);
+            let shell = SshShell::with_key(username, remote, key_dir.join(priv_key));
+
+            if shell.is_ok() {
+                return shell;
+            }
+        }
+
+        Err(SshError::KeyNotFound {
+            file: DEFAULT_KEY_DIR.into(),
+        })
+    }
+
     /// Returns a shell connected via private key file `key` to the given SSH server as the given
     /// user.
     ///
