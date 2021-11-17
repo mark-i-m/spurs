@@ -10,7 +10,7 @@
 //! me to build my cluster setup/experiments scripts/framework in rust, with much greater
 //! productivity and refactorability.
 
-#![doc(html_root_url = "https://docs.rs/spurs/0.9.1")]
+#![doc(html_root_url = "https://docs.rs/spurs/0.9.2")]
 
 use std::{
     io::Read,
