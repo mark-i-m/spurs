@@ -1,9 +1,9 @@
 # Changelog
 
 ## 0.9.1
-
 - Added the `SshShell::with_any_key` function, which allows using the first SSH
   key that works.
+- Internal improvement: fix escaping when using bash.
 
 ## 0.9.0
 - Major changes to the way `spawn` and `SshSpawnHandle` work, along with their

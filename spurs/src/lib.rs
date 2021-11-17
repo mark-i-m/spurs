@@ -669,43 +669,22 @@ macro_rules! cmd {
     };
 }
 
-/// Given a string, encode all single quotes so that the whole string can be passed correctly as a
-/// single argument to a bash command.
+/// Given a string, properly escape the string so that it can be passed as a command line argument
+/// to bash.
 ///
 /// This is useful for passing commands to `bash -c` (e.g. through ssh).
-///
-/// For example, if I want to run the following command:
-///
-/// ```bash
-/// echo '$HELLOWORLD="hello world"' | grep "hello"
-/// ```
-///
-/// This function will output `'echo '"'"'$HELLOWORLD="hello world"'"'"' | grep "hello"'`.
-/// So the following command can be executed over ssh:
-///
-/// ```bash
-/// bash -c 'echo '"'"'$HELLOWORLD="hello world"'"'"' | grep "hello"'
-/// ```
 fn escape_for_bash(s: &str) -> String {
     let mut new = String::with_capacity(s.len());
 
-    new.push('\'');
-
+    // Escape every non-alphanumeric character.
     for c in s.chars() {
-        if c == '\'' {
-            new.push('\''); // end first part of string
-
-            new.push('"');
-            new.push('\''); // quote the single quote
-            new.push('"');
-
-            new.push('\''); // start next part of string
+        if c.is_ascii_alphanumeric() {
+            new.push(c);
         } else {
+            new.push('\\');
             new.push(c);
         }
     }
-
-    new.push('\'');
 
     new
 }
@@ -729,16 +708,24 @@ mod test {
         #[test]
         fn simple() {
             const TEST_STRING: &str = "ls";
-            assert_eq!(escape_for_bash(TEST_STRING), "'ls'");
+            assert_eq!(escape_for_bash(TEST_STRING), "ls");
         }
 
         #[test]
         fn more_complex() {
-            const TEST_STRING: &str = r#"echo '$HELLOWORLD="hello world"' | grep "hello""#;
-            assert_eq!(
-                escape_for_bash(TEST_STRING),
-                r#"'echo '"'"'$HELLOWORLD="hello world"'"'"' | grep "hello"'"#
-            );
+            use std::process::Command;
+
+            const TEST_STRING: &str =
+                r#""Bob?!", said she, "I though you said 'I can't be there'!""#;
+
+            let out = Command::new("bash")
+                .arg("-c")
+                .arg(&format!("echo {}", escape_for_bash(TEST_STRING)))
+                .output()
+                .unwrap();
+            let out = String::from_utf8(out.stdout).unwrap();
+
+            assert_eq!(out.trim(), TEST_STRING);
         }
     }
 }
