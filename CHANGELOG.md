@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.9.3
+- Update ssh2 version
+
 ## 0.9.2
 - Internal improvement: fix escaping when using bash.
 

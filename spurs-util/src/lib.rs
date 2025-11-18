@@ -12,7 +12,7 @@
 //!
 //! The `centos` and `ubuntu` submodules contain routines specifically useful for those platforms.
 
-#![doc(html_root_url = "https://docs.rs/spurs-util/0.3.1")]
+#![doc(html_root_url = "https://docs.rs/spurs-util/0.3.2")]
 
 pub mod centos;
 pub mod ubuntu;
