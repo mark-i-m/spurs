@@ -18,7 +18,7 @@ default = []
 test = []
 
 [dependencies]
-ssh2 = "0.3.3"
+ssh2 = "0.9.5"
 dirs = "1.0.4"
 console = "0.7.2"
 log = "0.4.6"

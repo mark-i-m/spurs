@@ -303,7 +303,8 @@ impl SshShell {
 
         // Start an SSH session
         let mut sess = Session::new().unwrap();
-        sess.handshake(&tcp)?;
+        sess.set_tcp_stream(tcp.try_clone()?);
+        sess.handshake()?;
         trace!("SSH session handshook.");
         sess.userauth_pubkey_file(username, None, key.as_ref(), None)?;
         if !sess.authenticated() {
@@ -353,7 +354,8 @@ impl SshShell {
 
         // Start an SSH session
         let mut sess = Session::new().unwrap();
-        sess.handshake(&tcp)?;
+        sess.set_tcp_stream(tcp.try_clone()?);
+        sess.handshake()?;
         trace!("SSH session handshook.");
         sess.userauth_pubkey_file(&shell.username, None, shell.key.as_ref(), None)?;
         if !sess.authenticated() {
@@ -595,7 +597,8 @@ impl Execute for SshShell {
         // Start an SSH session
         debug!("Attempt to create new SSH session...");
         let mut sess = Session::new().unwrap();
-        sess.handshake(&self.tcp)?;
+        sess.set_tcp_stream(self.tcp.try_clone()?);
+        sess.handshake()?;
         trace!("Handshook!");
         sess.userauth_pubkey_file(&self.username, None, self.key.as_ref(), None)?;
         if !sess.authenticated() {
